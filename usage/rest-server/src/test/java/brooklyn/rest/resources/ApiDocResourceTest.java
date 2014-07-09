@@ -60,7 +60,7 @@ public class ApiDocResourceTest extends BrooklynRestResourceTest {
     @Test
     public void testCatalogDetails() throws Exception {
         Documentation response = client().resource("/v1/apidoc/brooklyn.rest.resources.CatalogResource").get(Documentation.class);
-        assertEquals(countOperations(response), 8);
+        assertEquals(countOperations(response), 9);
     }
 
     @SuppressWarnings("rawtypes")
