@@ -37,7 +37,7 @@ require.config({
         "jquery-ba-bbq":"libs/jquery.ba-bbq.min",
         "moment":"libs/moment",
         "handlebars":"libs/handlebars-1.0.rc.1",
-        "d3":"libs/d3.v3.min",
+        "d3":"libs/d3.v3",
         "brooklyn":"util/brooklyn",
         "brooklyn-view":"util/brooklyn-view",
         "brooklyn-utils":"util/brooklyn-utils",

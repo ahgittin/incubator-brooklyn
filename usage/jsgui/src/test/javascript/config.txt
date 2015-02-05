@@ -32,7 +32,7 @@
         "jquery-ba-bbq":"js/libs/jquery.ba-bbq.min",
         "moment":"js/libs/moment",
         "handlebars":"js/libs/handlebars-1.0.rc.1",
-        "d3":"js/libs/d3.v3.min",
+        "d3":"js/libs/d3.v3",
         "brooklyn":"js/util/brooklyn",
         "brooklyn-view":"js/util/brooklyn-view",
         "brooklyn-utils":"js/util/brooklyn-utils",
