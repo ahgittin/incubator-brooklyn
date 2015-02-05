@@ -20,12 +20,13 @@ define([
     "brooklyn", "underscore", "jquery", "backbone",
     "model/application", "model/app-tree", "model/location", 
     "model/server-extended-status",
-    "view/home", "view/application-explorer", "view/catalog", "view/apidoc", "view/script-groovy",
+    "view/home", "view/application-explorer", "view/catalog", "view/apidoc", 
+    "view/script-groovy", "view/tree-d3/tree-d3",
     "text!tpl/help/page.html","text!tpl/labs/page.html", "text!tpl/home/server-caution.html"
 ], function (Brooklyn, _, $, Backbone,
         Application, AppTree, Location, 
         serverStatus,
-        HomeView, ExplorerView, CatalogView, ApidocView, ScriptGroovyView, 
+        HomeView, ExplorerView, CatalogView, ApidocView, ScriptGroovyView, TreeD3View,
         HelpHtml, LabsHtml, ServerCautionHtml) {
 
     var ServerCautionOverlay = Backbone.View.extend({
@@ -130,6 +131,7 @@ define([
             'v1/catalog':'catalogPage',
             'v1/apidoc':'apidocPage',
             'v1/script/groovy':'scriptGroovyPage',
+            'v1/tree-d3':'treeD3Page',
             'v1/help':'helpPage',
             'labs':'labsPage',
             '*path':'defaultRoute'
@@ -213,6 +215,15 @@ define([
             $(".nav1").removeClass("active")
             $(".nav1_script").addClass("active")
             $(".nav1_script_groovy").addClass("active")
+        },
+        treeD3Page:function () {
+            if (this.treeD3Resource === undefined)
+                this.treeD3Resource = new TreeD3View({})
+            log("loading d3")
+            this.showView("#application-content", this.treeD3Resource)
+            $(".nav1").removeClass("active")
+            $(".nav1_script").addClass("active")
+            $(".nav1_script_treed3").addClass("active")
         },
         helpPage:function () {
             $("#application-content").html(_.template(HelpHtml, {}))
