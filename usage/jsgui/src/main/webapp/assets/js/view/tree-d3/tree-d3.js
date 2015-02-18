@@ -38,21 +38,21 @@ define([
         
         loadTree: function() {
             log("d3 load")
-            
-            // XXX
-
-            var m = [20, 120, 20, 120],
-                w = 1280 - m[1] - m[3],
-                h = 800 - m[0] - m[2],
+            log(this.$el.closest(".container").offset());
+            var 
+                m = [40, 40, 200, 40],
+                w = 980 - m[1] - m[3],
+                h = window.innerHeight - this.$el.closest(".container").offset().top - m[0] - m[2],
                 i = 0,
                 root,
                 nodes = {}
             
             var tree = d3.layout.tree()
-                .size([h, w]);
+                .size([w, h])
+                ;
 
             var diagonal = d3.svg.diagonal()
-                .projection(function(d) { return [d.y, d.x]; });
+                .projection(function(d) { return [d.x, d.y]; });
 
             log("d3 select", d3.select("#tree-d3"))
             
@@ -62,8 +62,9 @@ define([
               .append("svg:g")
                 .attr("transform", "translate(" + m[3] + "," + m[0] + ")");
 
-            root = { name: "Brooklyn", childrenLoaded: false, childrenLink: "/v1/applications", 
-                    x0: h / 2, y0: 0 }
+            root = { name: "Brooklyn", childrenLoaded: false, childrenLink: "/v1/applications"
+            , x0: w/2, y0: 0
+                    }
             update(root)
 
             d3.json(root.childrenLink, function(json) {
@@ -136,56 +137,91 @@ define([
             }
 
             function update(source) {
-              var duration = d3.event && d3.event.altKey ? 5000 : 500;
+              var duration = d3.event && d3.event.altKey ? 6000 : 300;
 
               // Compute the new tree layout.
-              var nodes = tree.nodes(root).reverse();
+              var nodes = tree.nodes(root)
+                .reverse()
+                ;
+              
+              log("updating")
+              log(source);
 
               // Normalize for fixed-depth.
-              nodes.forEach(function(d) {
-                  d.y = d.depth * 180; });
+//              nodes.forEach(function(d) {                  
+//                d.y = d.depth * 180; });
 
               // Update the nodes…
               var node = vis.selectAll("g.node")
                   .data(nodes, function(d) { return d.id || (d.id = ++i); });
+                  
+              var nodesOldOrder = vis.selectAll("g.node")[0]
+              
+              vis.selectAll("g.node").sort(function (a, b) {
+                // cheap and cheerful way to make this node appear at the top
+                if (a.id == source.id) return 1;
+                log(a);
+                return 0;
+              });
 
               // Enter any new nodes at the parent's previous position.
               var nodeEnter = node.enter().append("svg:g")
                   .attr("class", "node")
-                  .attr("transform", function(d) { return "translate(" + source.y0 + "," + source.x0 + ")"; })
+                  .attr("transform", function(d) { return "translate(" + source.x0 + "," + source.y0 + ")"; })
                   .on("click", function(d) { toggle(d); update(d); });
 
               var circleColor = function(d) {
                   var colour = 
-                  // red if not loaded; white if fully expanded (and if childless), steel if can be collapsed 
-                  !d.childrenLoaded ? "#09c" : 
-                  !d.childrenCached || d.children ? "#fff" : 
-                  "lightsteelgblue"; 
+                  // red if not loaded; 
+                  !d.childrenLoaded ? "#900" : 
+                  // black if can be collapsed 
+                  !d.childrenCached || d.children ? "#000" : 
+                  // white if fully expanded (and if childless) 
+                  "#fff"; 
                   return colour;
               }
               
               nodeEnter.append("svg:circle")
                   .attr("r", 1e-6)
+                  .style("stroke", "black")
                   .style("fill", circleColor);
+                  
+              nodeEnter.append("svg:rect")
+                  .attr("width", 200)
+                  .attr("height", 120)
+                  .attr("transform", "translate(-100,0)")
+                  .style("fill", "white")
+                  .attr("rx", 10)
+                  .attr("ry", 10)
+                  .style("stroke-width", "3px")
+                  .style("stroke", "black");
 
               nodeEnter.append("svg:text")
-                  .attr("x", function(d) { return d.children || d.childrenCached ? -10 : 10; })
-                  .attr("dy", ".35em")
-                  .attr("text-anchor", "start")
+                  .attr("x", function(d) { return 
+                    0; //-this.getComputedTextLength();
+                    // d.children || d.childrenCached ? -10 : 10; 
+                    })
+                  .attr("dy", "25px")
+                  .attr("text-anchor", "middle")
                   .text(function(d) { return d.name; })
+                  .attr("class", "title")
                   .style("fill-opacity", 1e-6);
 
               // Transition nodes to their new position.
               var nodeUpdate = node.transition()
                   .duration(duration)
-                  .attr("transform", function(d) { return "translate(" + d.y + "," + d.x + ")"; });
+                  .attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; })
+                  ;
 
               nodeUpdate.select("circle")
-                  .attr("r", 4.5)
+                  .attr("r", 6)
                   .style("fill", circleColor);
 
+              nodeUpdate.select("rect")
+                  .attr("height", function(d) { return !d.childrenLoaded || (d.childrenCached && !d.children) ? 120 : 40; });
+
               nodeUpdate.select("text")
-                  .attr("x", function(d,i) {
+                  .attr("__ignored_x", function(d,i) {
                       log("text", d, i)
                       log(this.getComputedTextLength())
                       return d.children ? -10-this.getComputedTextLength() : 10; })
@@ -194,7 +230,7 @@ define([
               // Transition exiting nodes to the parent's new position.
               var nodeExit = node.exit().transition()
                   .duration(duration)
-                  .attr("transform", function(d) { return "translate(" + source.y + "," + source.x + ")"; })
+                  .attr("transform", function(d) { return "translate(" + source.x + "," + source.y + ")"; })
                   .remove();
 
               nodeExit.select("circle")

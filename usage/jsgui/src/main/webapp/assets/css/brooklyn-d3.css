@@ -27,6 +27,13 @@
 
 .node text {
   font-size: 11px;
+  text-anchor: middle;
+  font-family: helvetica neue;
+}
+
+.node text.title {
+  font-size: 16px;
+  font-weight: 400;
 }
 
 path.link {
