@@ -276,6 +276,10 @@
                             -->
                             <exclude>**//src/build/optimize-css.json</exclude>
                             <exclude>**//src/build/optimize-js.json</exclude>
+
+                            <exclude>**//src/main/webapp/brooklynviz/bubbletree/*</exclude>
+                            <exclude>**//src/main/webapp/brooklynviz/d3/*</exclude>
+                            <exclude>**//src/main/webapp/brooklynviz/lib/*</exclude>
                         </excludes>
                     </configuration>
                 </plugin>
