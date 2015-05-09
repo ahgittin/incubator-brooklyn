@@ -142,6 +142,7 @@
         <mx4j.version>3.0.1</mx4j.version>
         <bouncycastle.version>1.49</bouncycastle.version>
         <sshj.version>0.8.1</sshj.version>
+        <mina-sshd.version>0.14.0</mina-sshd.version>
         <felix.framework.version>4.4.0</felix.framework.version>
         <reflections.version>0.9.9-RC1</reflections.version>
         <jetty.version>8.1.4.v20120524</jetty.version>
@@ -574,6 +575,11 @@
                 <groupId>net.schmizz</groupId>
                 <artifactId>sshj</artifactId>
                 <version>${sshj.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.sshd</groupId>
+                <artifactId>sshd-core</artifactId>
+                <version>${mina-sshd.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.freemarker</groupId>

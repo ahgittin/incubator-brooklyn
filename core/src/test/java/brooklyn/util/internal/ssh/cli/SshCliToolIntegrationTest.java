@@ -43,7 +43,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 /**
- * Test the operation of the {@link SshJschTool} utility class.
+ * Test the operation of the {@link SshMinaTool} utility class.
  */
 public class SshCliToolIntegrationTest extends SshToolAbstractIntegrationTest {
 
