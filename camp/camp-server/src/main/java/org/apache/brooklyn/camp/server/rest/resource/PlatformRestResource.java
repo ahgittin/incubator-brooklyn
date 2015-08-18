@@ -40,8 +40,6 @@ import org.apache.brooklyn.rest.apidoc.Apidoc;
 
 import com.wordnik.swagger.core.ApiOperation;
 
-//import io.brooklyn.camp.rest.apidoc.Apidoc;
-
 @Path(PlatformRestResource.CAMP_URI_PATH)
 @Apidoc("Platform (root)")
 @Produces("application/json")
