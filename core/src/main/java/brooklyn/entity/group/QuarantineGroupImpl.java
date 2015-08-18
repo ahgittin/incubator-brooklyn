@@ -21,19 +21,19 @@ package brooklyn.entity.group;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.core.util.task.Tasks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.AbstractEntity;
 import brooklyn.entity.basic.AbstractGroupImpl;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.effector.Effectors;
 import brooklyn.entity.trait.Startable;
-import brooklyn.management.Task;
 import brooklyn.util.exceptions.Exceptions;
-import brooklyn.util.task.DynamicTasks;
-import brooklyn.util.task.Tasks;
 import brooklyn.util.text.Strings;
 
 import com.google.common.collect.ImmutableMap;
@@ -43,6 +43,11 @@ import com.google.common.collect.Maps;
 public class QuarantineGroupImpl extends AbstractGroupImpl implements QuarantineGroup {
 
     private static final Logger LOG = LoggerFactory.getLogger(AbstractEntity.class);
+
+    @Override
+    protected void initEnrichers() {
+        //don't want enrichers (i.e. quorum checks)
+    }
 
     @Override
     public void expungeMembers(boolean stopFirst) {

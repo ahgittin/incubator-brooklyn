@@ -18,21 +18,20 @@
  */
 package brooklyn.entity.chef.mysql;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.core.util.task.system.ProcessTaskWrapper;
 import org.testng.annotations.Test;
 
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.SoftwareProcess;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.software.SshEffectorTasks;
-import brooklyn.location.NoMachinesAvailableException;
-import brooklyn.util.task.system.ProcessTaskWrapper;
 
 public class ChefSoloDriverMySqlEntityLiveTest extends AbstractChefToyMySqlEntityLiveTest {
 
     // test here just so Eclipse IDE picks it up
     @Override @Test(groups="Live")
-    public void testMySqlOnProvisioningLocation() throws NoMachinesAvailableException {
+    public void testMySqlOnProvisioningLocation() throws Exception {
         super.testMySqlOnProvisioningLocation();
     }
 

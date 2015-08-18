@@ -46,6 +46,7 @@ require.config({
         "text":"libs/text",
         "uri":"libs/URI",
         "zeroclipboard":"libs/ZeroClipboard",
+        "js-yaml":"libs/js-yaml",
         
         "tpl":"../tpl"
     },
@@ -75,13 +76,9 @@ require.config({
 
 /*
  * Main application entry point.
- *
- * Inclusion of brooklyn module sets up logging.
  */
 require([
-    "backbone", "brooklyn", "router", "model/ha"
-], function (Backbone, Brooklyn, Router, ha) {
-    ha.autoUpdate();
-    var router = new Router();
-    Backbone.history.start();
+    "router"
+], function (Router) {
+    new Router().startBrooklynGui();
 });

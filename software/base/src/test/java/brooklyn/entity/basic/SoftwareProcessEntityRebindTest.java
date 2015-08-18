@@ -19,6 +19,8 @@
 package brooklyn.entity.basic;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNull;
+import static org.testng.Assert.assertTrue;
 
 import java.io.File;
 import java.util.Collection;
@@ -26,22 +28,26 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.location.MachineProvisioningLocation;
+import org.apache.brooklyn.api.location.NoMachinesAvailableException;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+import org.apache.brooklyn.test.EntityTestUtils;
+import org.apache.brooklyn.test.entity.TestApplication;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.entity.BrooklynAppUnitTestSupport;
+import brooklyn.entity.basic.ServiceStateLogic.ServiceProblemsLogic;
 import brooklyn.entity.basic.SoftwareProcessEntityTest.MyService;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.rebind.RebindTestUtils;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.MachineProvisioningLocation;
-import brooklyn.location.NoMachinesAvailableException;
-import brooklyn.location.basic.AbstractLocation;
-import brooklyn.location.basic.SshMachineLocation;
-import brooklyn.management.ManagementContext;
-import brooklyn.test.entity.TestApplication;
-import brooklyn.util.flags.SetFromFlag;
+
+import org.apache.brooklyn.location.basic.AbstractLocation;
+import org.apache.brooklyn.location.basic.SshMachineLocation;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
@@ -87,6 +93,46 @@ public class SoftwareProcessEntityRebindTest extends BrooklynAppUnitTestSupport 
         
         newApp.stop();
         assertEquals(newLoc.inUseCount.get(), 0);
+    }
+
+    @Test
+    public void testCreatesDriverAfterRebind() throws Exception {
+        origE = app.createAndManageChild(EntitySpec.create(MyService.class));
+        //the entity skips enricher initialization, do it explicitly
+        origE.addEnricher(ServiceStateLogic.newEnricherForServiceStateFromProblemsAndUp());
+
+        MyProvisioningLocation origLoc = mgmt.getLocationManager().createLocation(LocationSpec.create(MyProvisioningLocation.class)
+                .displayName("mylocname"));
+        app.start(ImmutableList.of(origLoc));
+        assertEquals(origE.getAttribute(Attributes.SERVICE_STATE_EXPECTED).getState(), Lifecycle.RUNNING);
+        EntityTestUtils.assertAttributeEqualsEventually(origE, Attributes.SERVICE_STATE_ACTUAL, Lifecycle.RUNNING);
+
+        ServiceProblemsLogic.updateProblemsIndicator((EntityLocal)origE, "test", "fire");
+        EntityTestUtils.assertAttributeEqualsEventually(origE, Attributes.SERVICE_STATE_ACTUAL, Lifecycle.ON_FIRE);
+
+        newApp = (TestApplication) rebind();
+        MyService newE = (MyService) Iterables.getOnlyElement(newApp.getChildren());
+        assertTrue(newE.getDriver() != null, "driver should be initialized");
+    }
+
+    @Test
+    public void testDoesNotCreateDriverAfterRebind() throws Exception {
+        origE = app.createAndManageChild(EntitySpec.create(MyService.class));
+        //the entity skips enricher initialization, do it explicitly
+        origE.addEnricher(ServiceStateLogic.newEnricherForServiceStateFromProblemsAndUp());
+        
+        MyProvisioningLocation origLoc = mgmt.getLocationManager().createLocation(LocationSpec.create(MyProvisioningLocation.class)
+                .displayName("mylocname"));
+        app.start(ImmutableList.of(origLoc));
+        assertEquals(origE.getAttribute(Attributes.SERVICE_STATE_EXPECTED).getState(), Lifecycle.RUNNING);
+        EntityTestUtils.assertAttributeEqualsEventually(origE, Attributes.SERVICE_STATE_ACTUAL, Lifecycle.RUNNING);
+
+        ServiceStateLogic.setExpectedState(origE, Lifecycle.ON_FIRE);
+        EntityTestUtils.assertAttributeEqualsEventually(origE, Attributes.SERVICE_STATE_ACTUAL, Lifecycle.ON_FIRE);
+
+        newApp = (TestApplication) rebind();
+        MyService newE = (MyService) Iterables.getOnlyElement(newApp.getChildren());
+        assertNull(newE.getDriver(), "driver should not be initialized because entity is in a permanent failure");
     }
 
     private TestApplication rebind() throws Exception {

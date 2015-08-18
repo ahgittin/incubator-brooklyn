@@ -21,20 +21,22 @@ package brooklyn.entity.basic;
 import java.util.Collection;
 import java.util.Map;
 
-import brooklyn.basic.BrooklynObjectInternal;
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.Feed;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.rebind.RebindSupport;
+import org.apache.brooklyn.api.entity.rebind.Rebindable;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.management.ExecutionContext;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.management.SubscriptionContext;
+import org.apache.brooklyn.api.mementos.EntityMemento;
+import org.apache.brooklyn.core.management.internal.EntityManagementSupport;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+
+import org.apache.brooklyn.basic.BrooklynObjectInternal;
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Effector;
-import brooklyn.entity.Feed;
-import brooklyn.entity.rebind.RebindSupport;
-import brooklyn.entity.rebind.Rebindable;
-import brooklyn.event.AttributeSensor;
-import brooklyn.location.Location;
-import brooklyn.management.ExecutionContext;
-import brooklyn.management.ManagementContext;
-import brooklyn.management.SubscriptionContext;
-import brooklyn.management.internal.EntityManagementSupport;
-import brooklyn.mementos.EntityMemento;
-import brooklyn.util.config.ConfigBag;
 
 import com.google.common.annotations.Beta;
 
@@ -57,26 +59,38 @@ public interface EntityInternal extends BrooklynObjectInternal, EntityLocal, Reb
      */
     <T> T setAttributeWithoutPublishing(AttributeSensor<T> sensor, T val);
 
+    /**
+     * @deprecated since 0.7.0; instead just use methods on {@link ConfigurationSupportInternal} returned by {@link #config()}
+     */
+    @Deprecated
     EntityConfigMap getConfigMap();
 
     /**
      * @return a read-only copy of all the config key/value pairs on this entity.
+     * 
+     * @deprecated since 0.7.0; instead just use methods on {@link ConfigurationSupportInternal} returned by {@link #config()},
+     * e.g. getBag().getAllConfigAsConfigKeyMap().
      */
+    @Deprecated
     @Beta
     Map<ConfigKey<?>,Object> getAllConfig();
 
     /**
      * Returns a read-only view of all the config key/value pairs on this entity, backed by a string-based map, 
      * including config names that did not match anything on this entity.
+     * 
+     * @deprecated since 0.7.0; use {@link #config()}, such as {@code entity.config().getBag()}
      */
-    @Beta
+    @Deprecated
     ConfigBag getAllConfigBag();
 
     /**
      * Returns a read-only view of the local (i.e. not inherited) config key/value pairs on this entity, 
      * backed by a string-based map, including config names that did not match anything on this entity.
+     * 
+     * @deprecated since 0.7.0; use {@link #config()}, such as {@code entity.config().getLocalBag()}
      */
-    @Beta
+    @Deprecated
     ConfigBag getLocalConfigBag();
 
     @Beta
@@ -84,8 +98,12 @@ public interface EntityInternal extends BrooklynObjectInternal, EntityLocal, Reb
 
     @Beta
     void removeAttribute(AttributeSensor<?> attribute);
-    
-    @Beta
+
+    /**
+     * 
+     * @deprecated since 0.7.0; use {@link #config()}, such as {@code entity.config().refreshInheritedConfig()}
+     */
+    @Deprecated
     void refreshInheritedConfig();
 
     /**

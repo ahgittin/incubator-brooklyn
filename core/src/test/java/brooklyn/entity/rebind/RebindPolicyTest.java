@@ -25,30 +25,32 @@ import static org.testng.Assert.assertTrue;
 
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.Group;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.mementos.BrooklynMementoManifest;
+import org.apache.brooklyn.api.policy.EnricherSpec;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.api.policy.PolicySpec;
+import org.apache.brooklyn.core.policy.basic.AbstractPolicy;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+import org.apache.brooklyn.test.entity.TestApplication;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.testng.annotations.Test;
 
 import brooklyn.config.ConfigKey;
 import brooklyn.enricher.basic.AbstractEnricher;
-import brooklyn.entity.Group;
 import brooklyn.entity.basic.BasicGroup;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.Entities;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.rebind.RebindEnricherTest.MyEnricher;
-import brooklyn.location.Location;
-import brooklyn.location.basic.Locations;
-import brooklyn.mementos.BrooklynMementoManifest;
-import brooklyn.policy.EnricherSpec;
-import brooklyn.policy.Policy;
-import brooklyn.policy.PolicySpec;
-import brooklyn.policy.basic.AbstractPolicy;
+
+import org.apache.brooklyn.location.basic.Locations;
+
 import brooklyn.test.Asserts;
-import brooklyn.test.entity.TestApplication;
-import brooklyn.test.entity.TestEntity;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.collections.MutableSet;
-import brooklyn.util.flags.SetFromFlag;
 
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableSet;
@@ -141,7 +143,7 @@ public class RebindPolicyTest extends RebindTestFixtureWithApp {
         RebindTestUtils.waitForPersisted(origApp);
         
         BrooklynMementoManifest manifest = loadMementoManifest();
-        assertFalse(manifest.getEntityIdToType().containsKey(entity.getId()));
+        assertFalse(manifest.getEntityIdToManifest().containsKey(entity.getId()));
         assertFalse(manifest.getPolicyIdToType().containsKey(policy.getId()));
         assertFalse(manifest.getEnricherIdToType().containsKey(enricher.getId()));
         assertFalse(manifest.getLocationIdToType().containsKey(loc.getId()));
@@ -179,7 +181,7 @@ public class RebindPolicyTest extends RebindTestFixtureWithApp {
     public void testReconfigurePolicyPersistsChange() throws Exception {
         MyPolicyReconfigurable policy = origApp.addPolicy(PolicySpec.create(MyPolicyReconfigurable.class)
                 .configure(MyPolicyReconfigurable.MY_CONFIG, "oldval"));
-        policy.setConfig(MyPolicyReconfigurable.MY_CONFIG, "newval");
+        policy.config().set(MyPolicyReconfigurable.MY_CONFIG, "newval");
         
         newApp = rebind();
         MyPolicyReconfigurable newPolicy = (MyPolicyReconfigurable) Iterables.getOnlyElement(newApp.getPolicies());

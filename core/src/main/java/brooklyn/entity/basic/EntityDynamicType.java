@@ -26,21 +26,21 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.EntityType;
+import org.apache.brooklyn.api.event.Sensor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.basic.BrooklynDynamicType;
+import org.apache.brooklyn.basic.BrooklynDynamicType;
 import brooklyn.config.ConfigKey.HasConfigKey;
-import brooklyn.entity.Effector;
-import brooklyn.entity.Entity;
-import brooklyn.entity.EntityType;
 import brooklyn.entity.effector.EffectorAndBody;
 import brooklyn.entity.effector.EffectorBody;
 import brooklyn.entity.effector.EffectorTasks.EffectorBodyTaskFactory;
 import brooklyn.entity.effector.EffectorTasks.EffectorTaskFactory;
 import brooklyn.entity.effector.EffectorWithBody;
 import brooklyn.entity.effector.Effectors;
-import brooklyn.event.Sensor;
 import brooklyn.util.javalang.Reflections;
 
 import com.google.common.annotations.Beta;
@@ -130,15 +130,36 @@ public class EntityDynamicType extends BrooklynDynamicType<Entity, AbstractEntit
             instance.emit(AbstractEntity.EFFECTOR_ADDED, newEffector.getName());
     }
 
-    /** Adds an effector with an explicit body */
+    /**
+     * Adds an effector with an explicit body to this entity.
+     */
     @Beta
     public <T> void addEffector(Effector<T> effector, EffectorTaskFactory<T> body) {
         addEffector(new EffectorAndBody<T>(effector, body));
     }
-    /** Adds an effector with an explicit body */
+
+    /**
+     * Adds an effector with an explicit body to this entity.
+     */
     @Beta
     public <T> void addEffector(Effector<T> effector, EffectorBody<T> body) {
         addEffector(effector, new EffectorBodyTaskFactory<T>(body));
+    }
+
+    /**
+     * Removes the given {@link Effector} from this entity.
+     * <p>
+     * Note that if the argument is an instance of {@link EffectorWithBody} it will
+     * still be possible to invoke the effector on the entity by calling
+     * <code>entity.invoke(effector, argumentsMap)</code>.
+     */
+    @Beta
+    public void removeEffector(Effector<?> effector) {
+        Effector<?> removed = effectors.remove(effector.getName());
+        invalidateSnapshot();
+        if (removed != null) {
+            instance.emit(AbstractEntity.EFFECTOR_REMOVED, removed.getName());
+        }
     }
 
     // --------------------------------------------------

@@ -22,6 +22,14 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.management.TaskAdaptable;
+import org.apache.brooklyn.api.management.TaskFactory;
+import org.apache.brooklyn.core.util.task.ssh.SshFetchTaskWrapper;
+import org.apache.brooklyn.core.util.task.ssh.SshPutTaskWrapper;
+import org.apache.brooklyn.core.util.task.system.ProcessTaskWrapper;
+import org.apache.brooklyn.test.entity.TestApplication;
 import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,20 +38,13 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import brooklyn.entity.basic.ApplicationBuilder;
 import brooklyn.entity.basic.Entities;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.LocalhostMachineProvisioningLocation;
-import brooklyn.location.basic.SshMachineLocation;
-import brooklyn.management.ManagementContext;
-import brooklyn.management.TaskAdaptable;
-import brooklyn.management.TaskFactory;
-import brooklyn.test.entity.TestApplication;
+
+import org.apache.brooklyn.location.basic.LocalhostMachineProvisioningLocation;
+import org.apache.brooklyn.location.basic.SshMachineLocation;
+
 import brooklyn.util.exceptions.PropagatedRuntimeException;
 import brooklyn.util.net.Urls;
-import brooklyn.util.task.ssh.SshFetchTaskWrapper;
-import brooklyn.util.task.ssh.SshPutTaskWrapper;
-import brooklyn.util.task.system.ProcessTaskWrapper;
 
 import com.google.common.io.Files;
 

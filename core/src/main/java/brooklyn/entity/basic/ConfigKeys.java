@@ -22,6 +22,7 @@ import java.util.Map;
 
 import javax.annotation.Nonnull;
 
+import org.apache.brooklyn.core.util.config.ConfigBag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,9 +30,9 @@ import brooklyn.config.ConfigKey;
 import brooklyn.event.basic.AttributeSensorAndConfigKey;
 import brooklyn.event.basic.BasicAttributeSensorAndConfigKey;
 import brooklyn.event.basic.BasicConfigKey;
+import brooklyn.event.basic.TemplatedStringAttributeSensorAndConfigKey;
 import brooklyn.event.basic.BasicConfigKey.BasicConfigKeyOverwriting;
 import brooklyn.event.basic.PortAttributeSensorAndConfigKey;
-import brooklyn.util.config.ConfigBag;
 import brooklyn.util.text.Strings;
 import brooklyn.util.time.Duration;
 
@@ -95,6 +96,14 @@ public class ConfigKeys {
         return new BasicAttributeSensorAndConfigKey.StringAttributeSensorAndConfigKey(name, description, defaultValue);
     }
 
+    public static AttributeSensorAndConfigKey<String,String> newTemplateSensorAndConfigKey(String name, String description) {
+        return new TemplatedStringAttributeSensorAndConfigKey(name, description);
+    }
+
+    public static AttributeSensorAndConfigKey<String,String> newTemplateSensorAndConfigKey(String name, String description, String defaultValue) {
+        return new TemplatedStringAttributeSensorAndConfigKey(name, description, defaultValue);
+    }
+
     public static AttributeSensorAndConfigKey<Integer,Integer> newIntegerSensorAndConfigKey(String name, String description) {
         return new BasicAttributeSensorAndConfigKey.IntegerAttributeSensorAndConfigKey(name, description);
     }
@@ -122,9 +131,14 @@ public class ConfigKeys {
     public static <T> BasicConfigKey.Builder<T> builder(Class<T> type) {
         return BasicConfigKey.builder(type);
     }
-
     public static <T> BasicConfigKey.Builder<T> builder(TypeToken<T> type) {
         return BasicConfigKey.builder(type);
+    }
+    public static <T> BasicConfigKey.Builder<T> builder(Class<T> type, String name) {
+        return BasicConfigKey.builder(type, name);
+    }
+    public static <T> BasicConfigKey.Builder<T> builder(TypeToken<T> type, String name) {
+        return BasicConfigKey.builder(type, name);
     }
 
     // ---- extensions to keys
@@ -221,10 +235,11 @@ public class ConfigKeys {
         public static final ConfigKey<Object> DEFAULT_VALUE = ConfigKeys.newConfigKey(Object.class, "defaultValue");
         
         public static ConfigKey<?> newInstance(ConfigBag keyDefs) {
-            // TODO dynamic typing - see TYPE key commented out above
             String typeName = Strings.toString(keyDefs.getStringKey("type"));
-            if (Strings.isNonBlank(typeName))
+            if (Strings.isNonBlank(typeName)) {
+                // TODO dynamic typing - see TYPE key commented out above; also see AddSensor.getType for type lookup
                 log.warn("Setting 'type' is not currently supported for dynamic config keys; ignoring in definition of "+keyDefs);
+            }
             
             Class<Object> type = Object.class;
             String name = keyDefs.get(NAME);

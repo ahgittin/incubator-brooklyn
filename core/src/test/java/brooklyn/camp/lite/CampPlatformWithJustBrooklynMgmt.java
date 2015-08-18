@@ -18,11 +18,12 @@
  */
 package brooklyn.camp.lite;
 
-import io.brooklyn.camp.BasicCampPlatform;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.camp.BasicCampPlatform;
+
 import brooklyn.camp.brooklyn.api.HasBrooklynManagementContext;
 import brooklyn.config.BrooklynProperties;
 import brooklyn.config.BrooklynServerConfig;
-import brooklyn.management.ManagementContext;
 
 public class CampPlatformWithJustBrooklynMgmt extends BasicCampPlatform implements HasBrooklynManagementContext {
 

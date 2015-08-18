@@ -23,15 +23,19 @@ import groovy.lang.Closure;
 import java.util.Collection;
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.event.SensorEventListener;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.core.management.internal.CollectionChangeListener;
+import org.apache.brooklyn.core.management.internal.ManagementContextInternal;
+import org.apache.brooklyn.core.util.task.Tasks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.entity.Entity;
-import brooklyn.event.Sensor;
-import brooklyn.event.SensorEvent;
-import brooklyn.event.SensorEventListener;
-import brooklyn.management.internal.CollectionChangeListener;
-import brooklyn.management.internal.ManagementContextInternal;
+import brooklyn.config.BrooklynLogging;
+import brooklyn.config.BrooklynLogging.LoggingLevel;
 import brooklyn.util.GroovyJavaMethods;
 import brooklyn.util.exceptions.Exceptions;
 
@@ -161,13 +165,20 @@ public class DynamicGroupImpl extends AbstractGroupImpl implements DynamicGroup 
         }
         setChangeListener = new MyEntitySetChangeListener();
         ((ManagementContextInternal) getManagementContext()).addEntitySetListener(setChangeListener);
-        try {
-            rescanEntities();
-        } catch (Exception e) {
-            log.warn("Error rescanning entities when rebinding; may be a group set against an unknown entity: "+e);
-            log.debug("Trace for rescan entities error", e);
-            Exceptions.propagateIfFatal(e);
-        }
+        Task<Object> rescan = Tasks.builder().name("rescan entities").body(
+            new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        rescanEntities();
+                    } catch (Exception e) {
+                        log.warn("Error rescanning entities on management of "+DynamicGroupImpl.this+"; may be a group set against an unknown entity: "+e);
+                        log.debug("Trace for rescan entities error", e);
+                        Exceptions.propagateIfFatal(e);
+                    }
+                }
+            }).build();
+        getExecutionContext().submit(rescan);
     }
 
     @Override
@@ -192,7 +203,8 @@ public class DynamicGroupImpl extends AbstractGroupImpl implements DynamicGroup 
                 return;
             }
             if (getApplication() == null) {
-                log.warn("{} not (yet) scanning for children: no application defined", this);
+                BrooklynLogging.log(log, BrooklynLogging.levelDependingIfReadOnly(this, LoggingLevel.WARN, LoggingLevel.TRACE, LoggingLevel.TRACE),
+                    "{} not (yet) scanning for children: no application defined", this);
                 return;
             }
             boolean changed = false;

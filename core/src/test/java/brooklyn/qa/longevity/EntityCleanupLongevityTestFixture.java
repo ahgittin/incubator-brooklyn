@@ -22,6 +22,21 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.event.SensorEventListener;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.core.internal.storage.BrooklynStorage;
+import org.apache.brooklyn.core.internal.storage.DataGrid;
+import org.apache.brooklyn.core.internal.storage.impl.BrooklynStorageImpl;
+import org.apache.brooklyn.core.management.internal.AbstractManagementContext;
+import org.apache.brooklyn.core.management.internal.LocalManagementContext;
+import org.apache.brooklyn.core.management.internal.ManagementContextInternal;
+import org.apache.brooklyn.core.util.task.BasicExecutionManager;
+import org.apache.brooklyn.core.util.task.TaskScheduler;
+import org.apache.brooklyn.test.entity.LocalManagementContextForTests;
+import org.apache.brooklyn.test.entity.TestApplication;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
@@ -30,22 +45,9 @@ import org.testng.annotations.BeforeMethod;
 
 import brooklyn.entity.basic.ApplicationBuilder;
 import brooklyn.entity.basic.Entities;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.event.SensorEvent;
-import brooklyn.event.SensorEventListener;
-import brooklyn.internal.storage.BrooklynStorage;
-import brooklyn.internal.storage.DataGrid;
-import brooklyn.internal.storage.impl.BrooklynStorageImpl;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.SimulatedLocation;
-import brooklyn.management.internal.AbstractManagementContext;
-import brooklyn.management.internal.LocalManagementContext;
-import brooklyn.management.internal.ManagementContextInternal;
-import brooklyn.test.entity.LocalManagementContextForTests;
-import brooklyn.test.entity.TestApplication;
-import brooklyn.test.entity.TestEntity;
-import brooklyn.util.task.BasicExecutionManager;
-import brooklyn.util.task.TaskScheduler;
+
+import org.apache.brooklyn.location.basic.SimulatedLocation;
+
 import brooklyn.util.text.Strings;
 import brooklyn.util.time.Time;
 
@@ -64,7 +66,7 @@ public abstract class EntityCleanupLongevityTestFixture {
     final static long MEMORY_MARGIN_OF_ERROR = 10*1024*1024;
 
     /** Iterations might currently leave behind:
-     * <li> brooklyn.management.usage.ApplicationUsage$ApplicationEvent (one each for started/stopped/destroyed, per app)
+     * <li> org.apache.brooklyn.core.management.usage.ApplicationUsage$ApplicationEvent (one each for started/stopped/destroyed, per app)
      * <li> SingleThreadedScheduler (subscription delivery tag for the entity)
      * <p>
      * Set at 2kb per iter for now. We'd like to drop this to 0 of course!

@@ -23,15 +23,15 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.drivers.EntityDriver;
+import org.apache.brooklyn.api.entity.drivers.downloads.DownloadResolverManager.DownloadRequirement;
+import org.apache.brooklyn.api.entity.drivers.downloads.DownloadResolverManager.DownloadTargets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.StringConfigMap;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.Attributes;
-import brooklyn.entity.drivers.EntityDriver;
-import brooklyn.entity.drivers.downloads.DownloadResolverManager.DownloadRequirement;
-import brooklyn.entity.drivers.downloads.DownloadResolverManager.DownloadTargets;
 import brooklyn.util.text.Strings;
 
 import com.google.common.base.Function;
@@ -90,7 +90,7 @@ import com.google.common.collect.Maps;
  * 
  * A URL can be a "template", where things of the form ${version} will be substituted for the value
  * of "version" provided for that entity. The freemarker template engine is used to convert URLs 
- * (see <a href="http://freemarker.org>http://freemarker.org</a>). For example, one could use the URL:
+ * (see <a href="http://freemarker.org">http://freemarker.org</a>). For example, one could use the URL:
  * <pre>
  * {@code
  * http://repo.acme.com/${simpletype}-${version}.${fileSuffix!tar.gz}

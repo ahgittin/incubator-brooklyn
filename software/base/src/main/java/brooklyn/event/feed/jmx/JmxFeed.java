@@ -31,12 +31,12 @@ import javax.management.NotificationFilter;
 import javax.management.NotificationListener;
 import javax.management.ObjectName;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.ConfigKey;
 import brooklyn.entity.basic.ConfigKeys;
-import brooklyn.entity.basic.EntityLocal;
 import brooklyn.entity.basic.SoftwareProcessImpl;
 import brooklyn.event.feed.AbstractFeed;
 import brooklyn.event.feed.AttributePollHandler;
@@ -127,6 +127,7 @@ public class JmxFeed extends AbstractFeed {
         private List<JmxAttributePollConfig<?>> attributePolls = Lists.newArrayList();
         private List<JmxOperationPollConfig<?>> operationPolls = Lists.newArrayList();
         private List<JmxNotificationSubscriptionConfig<?>> notificationSubscriptions = Lists.newArrayList();
+        private String uniqueTag;
         private volatile boolean built;
         
         public Builder entity(EntityLocal val) {
@@ -158,6 +159,10 @@ public class JmxFeed extends AbstractFeed {
         }
         public Builder subscribeToNotification(JmxNotificationSubscriptionConfig<?> config) {
             notificationSubscriptions.add(config);
+            return this;
+        }
+        public Builder uniqueTag(String uniqueTag) {
+            this.uniqueTag = uniqueTag;
             return this;
         }
         public JmxFeed build() {
@@ -193,6 +198,7 @@ public class JmxFeed extends AbstractFeed {
         
         SetMultimap<String, JmxAttributePollConfig<?>> attributePolls = HashMultimap.<String,JmxAttributePollConfig<?>>create();
         for (JmxAttributePollConfig<?> config : builder.attributePolls) {
+            if (!config.isEnabled()) continue;
             @SuppressWarnings({ "rawtypes", "unchecked" })
             JmxAttributePollConfig<?> configCopy = new JmxAttributePollConfig(config);
             if (configCopy.getPeriod() < 0) configCopy.period(builder.period, builder.periodUnits);
@@ -202,6 +208,7 @@ public class JmxFeed extends AbstractFeed {
         
         SetMultimap<List<?>, JmxOperationPollConfig<?>> operationPolls = HashMultimap.<List<?>,JmxOperationPollConfig<?>>create();
         for (JmxOperationPollConfig<?> config : builder.operationPolls) {
+            if (!config.isEnabled()) continue;
             @SuppressWarnings({ "rawtypes", "unchecked" })
             JmxOperationPollConfig<?> configCopy = new JmxOperationPollConfig(config);
             if (configCopy.getPeriod() < 0) configCopy.period(builder.period, builder.periodUnits);
@@ -211,9 +218,11 @@ public class JmxFeed extends AbstractFeed {
         
         SetMultimap<NotificationFilter, JmxNotificationSubscriptionConfig<?>> notificationSubscriptions = HashMultimap.create();
         for (JmxNotificationSubscriptionConfig<?> config : builder.notificationSubscriptions) {
+            if (!config.isEnabled()) continue;
             notificationSubscriptions.put(config.getNotificationFilter(), config);
         }
         setConfig(NOTIFICATION_SUBSCRIPTIONS, notificationSubscriptions);
+        initUniqueTag(builder.uniqueTag, attributePolls, operationPolls, notificationSubscriptions);
     }
 
     @Override
@@ -423,6 +432,6 @@ public class JmxFeed extends AbstractFeed {
     
     @Override
     public String toString() {
-        return "JmxFeed["+getJmxUri()+"]";
+        return "JmxFeed["+(getManagementContext()!=null&&getManagementContext().isRunning()?getJmxUri():"mgmt-not-running")+"]";
     }
 }

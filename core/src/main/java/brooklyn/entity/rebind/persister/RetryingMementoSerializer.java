@@ -20,10 +20,9 @@ package brooklyn.entity.rebind.persister;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import org.apache.brooklyn.api.mementos.BrooklynMementoPersister.LookupContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import brooklyn.mementos.BrooklynMementoPersister.LookupContext;
 
 public class RetryingMementoSerializer<T> implements MementoSerializer<T> {
     
@@ -45,7 +44,10 @@ public class RetryingMementoSerializer<T> implements MementoSerializer<T> {
         do {
             attempt++;
             try {
-                return delegate.toString(memento);
+                String result = delegate.toString(memento);
+                if (attempt>1) 
+                    LOG.info("Success following previous serialization error");
+                return result;
             } catch (RuntimeException e) {
                 LOG.warn("Error serializing memento (attempt "+attempt+" of "+maxAttempts+") for "+memento+
                         "; expected sometimes if attribute value modified", e);
@@ -66,10 +68,14 @@ public class RetryingMementoSerializer<T> implements MementoSerializer<T> {
         do {
             attempt++;
             try {
-                return delegate.fromString(string);
+                T result = delegate.fromString(string);
+                if (attempt>1)
+                    LOG.info("Success following previous deserialization error, got: "+result);
+                return result;
             } catch (RuntimeException e) {
                 // trying multiple times only makes sense for a few errors (namely ConcModExceptions); perhaps deprecate that strategy?
-                LOG.warn("Error deserializing memento (attempt "+attempt+" of "+maxAttempts+")", e);
+                LOG.warn("Error deserializing memento (attempt "+attempt+" of "+maxAttempts+"): "+e, e);
+                if (attempt==1) LOG.debug("Memento which was not deserialized is:\n"+string);
                 lastException = e;
             }
         } while (attempt < maxAttempts);

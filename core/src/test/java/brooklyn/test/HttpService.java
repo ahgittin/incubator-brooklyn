@@ -18,6 +18,8 @@
  */
 package brooklyn.test;
 
+import org.apache.brooklyn.test.TestResourceUnavailableException;
+
 import java.io.File;
 import java.io.InputStream;
 import java.net.InetAddress;
@@ -37,11 +39,11 @@ import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.webapp.WebAppContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.brooklyn.api.location.PortRange;
+import org.apache.brooklyn.core.util.ResourceUtils;
+import org.apache.brooklyn.core.util.crypto.SecureKeys;
+import org.apache.brooklyn.location.basic.LocalhostMachineProvisioningLocation;
 
-import brooklyn.location.PortRange;
-import brooklyn.location.basic.LocalhostMachineProvisioningLocation;
-import brooklyn.util.ResourceUtils;
-import brooklyn.util.crypto.SecureKeys;
 import brooklyn.util.javalang.Threads;
 import brooklyn.util.os.Os;
 
@@ -60,7 +62,8 @@ public class HttpService {
 
     private static final Logger log = LoggerFactory.getLogger(HttpService.class);
 
-    public static final String ROOT_WAR_URL = "classpath://hello-world.war";
+    public static final String ROOT_WAR_PATH = "/hello-world.war";
+    public static final String ROOT_WAR_URL = "classpath:" + ROOT_WAR_PATH;
     public static final String SERVER_KEYSTORE = "classpath://server.ks";
     
     private final boolean httpsEnabled;
@@ -109,6 +112,8 @@ public class HttpService {
     }
 
     public HttpService start() throws Exception {
+        TestResourceUnavailableException.throwIfResourceUnavailable(getClass(), ROOT_WAR_PATH);
+
         try {
             if (httpsEnabled) {
                 //by default the server is configured with a http connector, this needs to be removed since we are going

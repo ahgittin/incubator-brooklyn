@@ -162,6 +162,63 @@ define([
             return alternateMessage;
         }
     };
+    
+    secretWords = [ "password", "passwd", "credential", "secret", "private", "access.cert", "access.key" ];
+    
+    Util.isSecret = function (key) {
+        if (!key) return false;
+        key = key.toString().toLowerCase();
+        for (secretWord in secretWords)
+            if (key.indexOf(secretWords[secretWord]) >= 0)
+                return true;
+        return false; 
+    };
+
+    Util.logout = function logout() {
+        $.ajax({
+            type: "POST",
+            dataType: "text",
+            url: "/logout",
+            success: function() {
+                window.location.replace("/");
+            },
+            failure: function() {
+                window.location.replace("/");
+            }
+        });
+    }
+
+    Util.setSelectionRange = function (input, selectionStart, selectionEnd) {
+      if (input.setSelectionRange) {
+        input.focus();
+        input.setSelectionRange(selectionStart, selectionEnd);
+      }
+      else if (input.createTextRange) {
+        var range = input.createTextRange();
+        range.collapse(true);
+        range.moveEnd('character', selectionEnd);
+        range.moveStart('character', selectionStart);
+        range.select();
+      }
+    };
+            
+    Util.setCaretToPos = function (input, pos) {
+      Util.setSelectionRange(input, pos, pos);
+    };
+
+    $.fn.setCaretToStart = function() {
+      this.each(function(index, elem) {
+        Util.setCaretToPos(elem, 0);
+        $(elem).scrollTop(0);
+      });
+      return this;
+    };
+
+    $("#logout-link").on("click", function (e) {
+        e.preventDefault();
+        Util.logout()
+        return false;
+    });
 
     return Util;
 

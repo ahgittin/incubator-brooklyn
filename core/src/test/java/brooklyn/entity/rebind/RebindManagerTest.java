@@ -22,15 +22,14 @@ import static org.testng.Assert.assertEquals;
 
 import java.util.concurrent.Callable;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.core.util.task.BasicTask;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.test.entity.TestEntity;
+import org.apache.brooklyn.test.entity.TestEntityImpl;
 import org.testng.annotations.Test;
-
-import brooklyn.entity.Entity;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.management.Task;
-import brooklyn.test.entity.TestEntity;
-import brooklyn.test.entity.TestEntityImpl;
-import brooklyn.util.task.BasicTask;
-import brooklyn.util.task.DynamicTasks;
 
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;

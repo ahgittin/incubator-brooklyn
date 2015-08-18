@@ -23,9 +23,10 @@ import java.util.List;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 
-import brooklyn.entity.Entity;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.location.Location;
+
 import brooklyn.entity.group.DynamicCluster.ZoneFailureDetector;
-import brooklyn.location.Location;
 
 import com.google.common.annotations.Beta;
 import com.google.common.base.Ticker;

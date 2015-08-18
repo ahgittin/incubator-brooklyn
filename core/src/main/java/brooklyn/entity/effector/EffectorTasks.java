@@ -22,31 +22,35 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.ParameterType;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.api.management.TaskAdaptable;
+import org.apache.brooklyn.core.management.internal.EffectorUtils;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.task.DynamicSequentialTask;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.core.util.task.TaskBuilder;
+import org.apache.brooklyn.core.util.task.Tasks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Effector;
-import brooklyn.entity.Entity;
-import brooklyn.entity.ParameterType;
 import brooklyn.entity.basic.BrooklynTaskTags;
 import brooklyn.entity.basic.ConfigKeys;
-import brooklyn.location.basic.Machines;
-import brooklyn.location.basic.SshMachineLocation;
-import brooklyn.management.Task;
-import brooklyn.management.TaskAdaptable;
-import brooklyn.management.internal.EffectorUtils;
-import brooklyn.util.config.ConfigBag;
+
+import org.apache.brooklyn.location.basic.Machines;
+import org.apache.brooklyn.location.basic.SshMachineLocation;
+import org.apache.brooklyn.location.basic.WinRmMachineLocation;
+
 import brooklyn.util.javalang.Reflections;
-import brooklyn.util.task.DynamicSequentialTask;
-import brooklyn.util.task.DynamicTasks;
-import brooklyn.util.task.TaskBuilder;
-import brooklyn.util.task.Tasks;
 
 import com.google.common.annotations.Beta;
 import com.google.common.base.Preconditions;
 
 /**
+ * Miscellaneous tasks which are useful in effectors.
  * @since 0.6.0
  */
 @Beta
@@ -68,7 +72,7 @@ public class EffectorTasks {
         }
         
         @Override
-        public Task<T> newTask(final Entity entity, final brooklyn.entity.Effector<T> effector, final ConfigBag parameters) {
+        public Task<T> newTask(final Entity entity, final org.apache.brooklyn.api.entity.Effector<T> effector, final ConfigBag parameters) {
             final AtomicReference<DynamicSequentialTask<T>> dst = new AtomicReference<DynamicSequentialTask<T>>();
 
             dst.set(new DynamicSequentialTask<T>(
@@ -117,7 +121,7 @@ public class EffectorTasks {
         }
         
         @Override
-        public Task<T> newTask(final Entity entity, final brooklyn.entity.Effector<T> effector, final ConfigBag parameters) {
+        public Task<T> newTask(final Entity entity, final org.apache.brooklyn.api.entity.Effector<T> effector, final ConfigBag parameters) {
             if (effectorTaskFactory instanceof EffectorBodyTaskFactory)
                 return effectorTaskFactory.newTask(entity, effector, parameters).asTask();
             // if we're in an effector context for this effector already, then also pass through
@@ -216,4 +220,13 @@ public class EffectorTasks {
         }
     }
 
+    /** Finds a unique {@link WinRmMachineLocation} attached to the supplied entity
+     * @throws IllegalStateException if there is not a unique such {@link WinRmMachineLocation} */
+    public static WinRmMachineLocation getWinRmMachine(Entity entity) {
+        try {
+            return Machines.findUniqueWinRmMachineLocation(entity.getLocations()).get();
+        } catch (Exception e) {
+            throw new IllegalStateException("Entity "+entity+" (in "+Tasks.current()+") requires a single WinRmMachineLocation, but has "+entity.getLocations(), e);
+        }
+    }
 }

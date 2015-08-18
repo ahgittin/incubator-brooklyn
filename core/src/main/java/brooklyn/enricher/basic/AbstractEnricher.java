@@ -22,20 +22,21 @@ import static com.google.common.base.Preconditions.checkState;
 
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.rebind.RebindSupport;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.mementos.EnricherMemento;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.EnricherType;
+import org.apache.brooklyn.core.policy.basic.AbstractEntityAdjunct;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
+
 import brooklyn.config.ConfigKey;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityInternal;
-import brooklyn.entity.basic.EntityLocal;
 import brooklyn.entity.rebind.BasicEnricherRebindSupport;
-import brooklyn.entity.rebind.RebindSupport;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
-import brooklyn.mementos.EnricherMemento;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.EnricherType;
-import brooklyn.policy.basic.AbstractEntityAdjunct;
-import brooklyn.util.flags.TypeCoercions;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.Maps;

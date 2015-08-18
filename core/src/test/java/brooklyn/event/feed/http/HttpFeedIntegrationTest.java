@@ -23,22 +23,24 @@ import static org.testng.Assert.assertTrue;
 
 import java.net.URI;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.test.EntityTestUtils;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.entity.BrooklynAppUnitTestSupport;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.Sensors;
-import brooklyn.location.Location;
-import brooklyn.location.basic.LocalhostMachineProvisioningLocation;
-import brooklyn.location.basic.PortRanges;
+
+import org.apache.brooklyn.location.basic.LocalhostMachineProvisioningLocation;
+import org.apache.brooklyn.location.basic.PortRanges;
+
 import brooklyn.test.Asserts;
-import brooklyn.test.EntityTestUtils;
 import brooklyn.test.HttpService;
-import brooklyn.test.entity.TestEntity;
 
 import com.google.common.base.Functions;
 import com.google.common.collect.ImmutableList;

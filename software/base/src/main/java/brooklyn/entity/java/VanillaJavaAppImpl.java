@@ -23,13 +23,13 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.SoftwareProcessImpl;
 import brooklyn.event.feed.jmx.JmxFeed;
-import brooklyn.util.flags.SetFromFlag;
 
 import com.google.common.annotations.VisibleForTesting;
 

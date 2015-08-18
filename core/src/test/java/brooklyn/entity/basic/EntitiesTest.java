@@ -24,16 +24,18 @@ import static org.testng.Assert.assertTrue;
 
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.entity.BrooklynAppUnitTestSupport;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.SimulatedLocation;
+
+import org.apache.brooklyn.location.basic.SimulatedLocation;
+
 import brooklyn.test.Asserts;
-import brooklyn.test.entity.TestEntity;
 import brooklyn.util.collections.MutableSet;
 
 import com.google.common.collect.ImmutableList;
@@ -125,7 +127,7 @@ public class EntitiesTest extends BrooklynAppUnitTestSupport {
         Assert.assertTrue(entity.tags().containsTag(entity.getParent()));
         Assert.assertFalse(entity.tags().containsTag(entity));
         
-        entity.removeTag(2);
+        entity.tags().removeTag(2);
         Assert.assertEquals(entity.tags().getTags(), MutableSet.of(app));
     }
     

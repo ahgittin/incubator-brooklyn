@@ -18,17 +18,20 @@
  */
 package brooklyn.entity.group;
 
+import java.util.Map;
+
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Group;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.entity.proxying.ImplementedBy;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
-import brooklyn.entity.Group;
 import brooklyn.entity.basic.BasicGroup;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.DynamicGroup;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.entity.proxying.ImplementedBy;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.Sensors;
-import brooklyn.util.flags.SetFromFlag;
 
 import com.google.common.annotations.Beta;
 import com.google.common.base.Function;
@@ -42,8 +45,8 @@ public interface DynamicMultiGroup extends DynamicGroup {
     /**
      * Implements the mapping from {@link Entity} to bucket name.
      *
-     * @see DynamicMultiGroupImpl#bucketFromAttribute(brooklyn.event.AttributeSensor)
-     * @see DynamicMultiGroupImpl#bucketFromAttribute(brooklyn.event.AttributeSensor, String)
+     * @see DynamicMultiGroupImpl#bucketFromAttribute(org.apache.brooklyn.api.event.AttributeSensor)
+     * @see DynamicMultiGroupImpl#bucketFromAttribute(org.apache.brooklyn.api.event.AttributeSensor, String)
      */
     @SetFromFlag("bucketFunction")
     ConfigKey<Function<Entity, String>> BUCKET_FUNCTION = ConfigKeys.newConfigKey(
@@ -65,6 +68,9 @@ public interface DynamicMultiGroup extends DynamicGroup {
             EntitySpec.create(BasicGroup.class)
     );
 
+
+    AttributeSensor<Map<String, BasicGroup>> BUCKETS = Sensors.newSensor(new TypeToken<Map<String, BasicGroup>>() { },
+            "brooklyn.multigroup.buckets", "The bucket name to Group mappings");
 
     /**
      * Interval (in seconds) between scans of all entities for membership and distribution into buckets.

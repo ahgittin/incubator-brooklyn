@@ -25,6 +25,13 @@ import java.net.URL;
 import java.util.List;
 import java.util.concurrent.Callable;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.core.util.http.BetterMockWebServer;
+import org.apache.brooklyn.core.util.http.HttpToolResponse;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
@@ -36,20 +43,15 @@ import brooklyn.entity.BrooklynAppUnitTestSupport;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityFunctions;
 import brooklyn.entity.basic.EntityInternal;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.event.AttributeSensor;
+import brooklyn.entity.basic.EntityInternal.FeedSupport;
 import brooklyn.event.basic.Sensors;
 import brooklyn.event.feed.FeedConfig;
 import brooklyn.event.feed.PollConfig;
-import brooklyn.location.Location;
 import brooklyn.test.Asserts;
-import brooklyn.test.entity.TestEntity;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.guava.Functionals;
-import brooklyn.util.http.BetterMockWebServer;
-import brooklyn.util.http.HttpToolResponse;
+import brooklyn.util.net.Networking;
 import brooklyn.util.time.Duration;
 
 import com.google.common.base.Function;
@@ -117,6 +119,20 @@ public class HttpFeedTest extends BrooklynAppUnitTestSupport {
         
         assertSensorEventually(SENSOR_INT, (Integer)200, TIMEOUT_MS);
         assertSensorEventually(SENSOR_STRING, "{\"foo\":\"myfoo\"}", TIMEOUT_MS);
+    }
+    
+    @Test
+    public void testFeedDeDupe() throws Exception {
+        testPollsAndParsesHttpGetResponse();
+        entity.addFeed(feed);
+        log.info("Feed 0 is: "+feed);
+        
+        testPollsAndParsesHttpGetResponse();
+        log.info("Feed 1 is: "+feed);
+        entity.addFeed(feed);
+                
+        FeedSupport feeds = ((EntityInternal)entity).feeds();
+        Assert.assertEquals(feeds.getFeeds().size(), 1, "Wrong feed count: "+feeds.getFeeds());
     }
     
     @Test
@@ -285,42 +301,15 @@ public class HttpFeedTest extends BrooklynAppUnitTestSupport {
     }
 
 
-    @Test(groups="Integration")
-    /** marked as integration so it doesn't fail the plain build in environments
-     * with dodgy DNS (ie where "unresolvable_hostname_or_one_with_no_webserver_on_port_80" resolves as a host run by the provider)
-     * <p>
-     * (a surprising number of ISP's do this,
-     * happily serving adverts for your ISP, yielding "success" here,
-     * or timing out, giving null here)
-     * <p>
-     * if you want to make this test work, you can e.g. set it to loopback IP assuming you don't have any servers on port 80,
-     * with the following in /etc/hosts
-     * <p>  
-     * 127.0.0.1  unresolvable_hostname_or_one_with_no_webserver_on_port_80
-    // or some other IP which won't resolve
-     */
-    public void testPollsAndParsesHttpErrorResponseWild() throws Exception {
-        feed = HttpFeed.builder()
-                .entity(entity)
-                .baseUri("http://unresolvable_hostname_or_one_with_no_webserver_on_port_80")
-                .poll(HttpPollConfig.forSensor(SENSOR_STRING)
-                        .onSuccess(Functions.constant("success"))
-                        .onFailure(Functions.constant("failure"))
-                        .onException(Functions.constant("error")))
-                .build();
-        
-        assertSensorEventually(SENSOR_STRING, "error", TIMEOUT_MS);
-    }
-    
     @Test
     public void testPollsAndParsesHttpErrorResponseLocal() throws Exception {
+        int unboundPort = Networking.nextAvailablePort(10000);
         feed = HttpFeed.builder()
                 .entity(entity)
-                // combo of port 46069 and unknown path will hopefully give an error
-                // (without the port, in jenkins it returns some bogus success page)
-                .baseUri("http://localhost:46069/path/should/not/exist")
+                .baseUri("http://localhost:" + unboundPort + "/path/should/not/exist")
                 .poll(new HttpPollConfig<String>(SENSOR_STRING)
                         .onSuccess(Functions.constant("success"))
+                        .onFailure(Functions.constant("failure"))
                         .onException(Functions.constant("error")))
                 .build();
         

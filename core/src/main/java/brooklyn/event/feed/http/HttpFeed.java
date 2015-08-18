@@ -28,6 +28,10 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.core.util.http.HttpTool;
+import org.apache.brooklyn.core.util.http.HttpToolResponse;
+import org.apache.brooklyn.core.util.http.HttpTool.HttpClientBuilder;
 import org.apache.http.auth.Credentials;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.HttpClient;
@@ -37,14 +41,10 @@ import org.slf4j.LoggerFactory;
 import brooklyn.config.ConfigKey;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.Entities;
-import brooklyn.entity.basic.EntityLocal;
 import brooklyn.event.feed.AbstractFeed;
 import brooklyn.event.feed.AttributePollHandler;
 import brooklyn.event.feed.DelegatingPollHandler;
 import brooklyn.event.feed.Poller;
-import brooklyn.util.http.HttpTool;
-import brooklyn.util.http.HttpTool.HttpClientBuilder;
-import brooklyn.util.http.HttpToolResponse;
 import brooklyn.util.time.Duration;
 
 import com.google.common.base.Objects;
@@ -94,7 +94,7 @@ import com.google.common.reflect.TypeToken;
  * <p>
  *  
  * This also supports giving a Supplier for the URL 
- * (e.g. {@link Entities#attributeSupplier(brooklyn.entity.Entity, brooklyn.event.AttributeSensor)})
+ * (e.g. {@link Entities#attributeSupplier(org.apache.brooklyn.api.entity.Entity, org.apache.brooklyn.api.event.AttributeSensor)})
  * from a sensor.  Note however that if a Supplier-based sensor is *https*,
  * https-specific initialization may not occur if the URL is not available at start time,
  * and it may report errors if that sensor is not available.
@@ -127,6 +127,7 @@ public class HttpFeed extends AbstractFeed {
         private Map<String, String> headers = Maps.newLinkedHashMap();
         private boolean suspended = false;
         private Credentials credentials;
+        private String uniqueTag;
         private volatile boolean built;
 
         public Builder entity(EntityLocal val) {
@@ -203,6 +204,10 @@ public class HttpFeed extends AbstractFeed {
             }
             return this;
         }
+        public Builder uniqueTag(String uniqueTag) {
+            this.uniqueTag = uniqueTag;
+            return this;
+        }
         public HttpFeed build() {
             built = true;
             HttpFeed result = new HttpFeed(this);
@@ -274,6 +279,7 @@ public class HttpFeed extends AbstractFeed {
         
         SetMultimap<HttpPollIdentifier, HttpPollConfig<?>> polls = HashMultimap.<HttpPollIdentifier,HttpPollConfig<?>>create();
         for (HttpPollConfig<?> config : builder.polls) {
+            if (!config.isEnabled()) continue;
             @SuppressWarnings({ "unchecked", "rawtypes" })
             HttpPollConfig<?> configCopy = new HttpPollConfig(config);
             if (configCopy.getPeriod() < 0) configCopy.period(builder.period);
@@ -293,13 +299,14 @@ public class HttpFeed extends AbstractFeed {
                 URI uri = config.buildUri(builder.baseUri, baseUriVars);
                 baseUriProvider = Suppliers.ofInstance(uri);
             } else if (!builder.baseUriVars.isEmpty()) {
-                throw new IllegalStateException("Not permitted to supply URI vars when using a URI provider");
+                throw new IllegalStateException("Not permitted to supply URI vars when using a URI provider; pass the vars to the provider instead");
             }
             checkNotNull(baseUriProvider);
 
             polls.put(new HttpPollIdentifier(method, baseUriProvider, headers, body, credentials, connectionTimeout, socketTimeout), configCopy);
         }
         setConfig(POLLS, polls);
+        initUniqueTag(builder.uniqueTag, polls.values());
     }
 
     @Override

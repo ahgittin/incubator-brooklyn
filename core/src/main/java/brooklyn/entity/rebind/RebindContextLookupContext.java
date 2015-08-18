@@ -22,16 +22,21 @@ import javax.annotation.Nullable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.brooklyn.api.basic.BrooklynObject;
+import org.apache.brooklyn.api.catalog.CatalogItem;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Feed;
+import org.apache.brooklyn.api.entity.rebind.BrooklynObjectType;
+import org.apache.brooklyn.api.entity.rebind.RebindContext;
+import org.apache.brooklyn.api.entity.rebind.RebindExceptionHandler;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.mementos.BrooklynMementoPersister.LookupContext;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.core.catalog.internal.CatalogUtils;
 
-import brooklyn.catalog.CatalogItem;
-import brooklyn.entity.Entity;
-import brooklyn.entity.Feed;
-import brooklyn.location.Location;
-import brooklyn.management.ManagementContext;
-import brooklyn.mementos.BrooklynMementoPersister.LookupContext;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.Policy;
-
+/** Looks in {@link RebindContext} <i>and</i> {@link ManagementContext} to find entities, locations, etc. */
 public class RebindContextLookupContext implements LookupContext {
     
     @SuppressWarnings("unused")
@@ -40,13 +45,10 @@ public class RebindContextLookupContext implements LookupContext {
     @Nullable
     protected final ManagementContext managementContext;
     
-    protected final RebindContext rebindContext;
+    protected final RebindContextImpl rebindContext;
     protected final RebindExceptionHandler exceptionHandler;
     
-    public RebindContextLookupContext(RebindContext rebindContext, RebindExceptionHandler exceptionHandler) {
-        this(null, rebindContext, exceptionHandler);
-    }
-    public RebindContextLookupContext(ManagementContext managementContext, RebindContext rebindContext, RebindExceptionHandler exceptionHandler) {
+    public RebindContextLookupContext(ManagementContext managementContext, RebindContextImpl rebindContext, RebindExceptionHandler exceptionHandler) {
         this.managementContext = managementContext;
         this.rebindContext = rebindContext;
         this.exceptionHandler = exceptionHandler;
@@ -59,6 +61,9 @@ public class RebindContextLookupContext implements LookupContext {
     @Override public Entity lookupEntity(String id) {
         Entity result = rebindContext.getEntity(id);
         if (result == null) {
+            result = managementContext.lookup(id, Entity.class);
+        }
+        if (result == null) {
             result = exceptionHandler.onDanglingEntityRef(id);
         }
         return result;
@@ -66,6 +71,9 @@ public class RebindContextLookupContext implements LookupContext {
     
     @Override public Location lookupLocation(String id) {
         Location result = rebindContext.getLocation(id);
+        if (result == null) {
+            result = managementContext.lookup(id, Location.class);
+        }
         if (result == null) {
             result = exceptionHandler.onDanglingLocationRef(id);
         }
@@ -75,6 +83,9 @@ public class RebindContextLookupContext implements LookupContext {
     @Override public Policy lookupPolicy(String id) {
         Policy result = rebindContext.getPolicy(id);
         if (result == null) {
+            result = managementContext.lookup(id, Policy.class);
+        }
+        if (result == null) {
             result = exceptionHandler.onDanglingPolicyRef(id);
         }
         return result;
@@ -83,6 +94,9 @@ public class RebindContextLookupContext implements LookupContext {
     @Override public Enricher lookupEnricher(String id) {
         Enricher result = rebindContext.getEnricher(id);
         if (result == null) {
+            result = managementContext.lookup(id, Enricher.class);
+        }
+        if (result == null) {
             result = exceptionHandler.onDanglingEnricherRef(id);
         }
         return result;
@@ -90,6 +104,9 @@ public class RebindContextLookupContext implements LookupContext {
 
     @Override public Feed lookupFeed(String id) {
         Feed result = rebindContext.getFeed(id);
+        if (result == null) {
+            result = managementContext.lookup(id, Feed.class);
+        }
         if (result == null) {
             result = exceptionHandler.onDanglingFeedRef(id);
         }
@@ -100,8 +117,41 @@ public class RebindContextLookupContext implements LookupContext {
     public CatalogItem<?, ?> lookupCatalogItem(String id) {
         CatalogItem<?, ?> result = rebindContext.getCatalogItem(id);
         if (result == null) {
+            result = CatalogUtils.getCatalogItemOptionalVersion(managementContext, id);
+        }
+        if (result == null) {
             result = exceptionHandler.onDanglingCatalogItemRef(id);
         }
         return result;
     }
+    
+    @Override
+    public BrooklynObject lookup(BrooklynObjectType type, String id) {
+        switch (type) {
+        case CATALOG_ITEM: return lookupCatalogItem(id);
+        case ENRICHER: return lookupEnricher(id);
+        case ENTITY: return lookupEntity(id);
+        case FEED: return lookupFeed(id);
+        case LOCATION: return lookupLocation(id);
+        case POLICY: return lookupPolicy(id);
+        case UNKNOWN: return null;
+        }
+        throw new IllegalStateException("Unexpected type "+type+" / id "+id);
+    }
+    
+    @Override
+    public BrooklynObject peek(BrooklynObjectType type, String id) {
+        switch (type) {
+        case CATALOG_ITEM: return rebindContext.getCatalogItem(id);
+        case ENRICHER: return rebindContext.getEnricher(id);
+        case ENTITY: return rebindContext.getEntity(id);
+        case FEED: return rebindContext.getFeed(id);
+        case LOCATION: return rebindContext.getLocation(id);
+        case POLICY: return rebindContext.getPolicy(id);
+        case UNKNOWN: return null;
+        }
+        throw new IllegalStateException("Unexpected type "+type+" / id "+id);
+    }
+
+
 }

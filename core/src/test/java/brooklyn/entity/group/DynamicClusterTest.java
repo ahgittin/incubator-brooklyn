@@ -44,26 +44,33 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.entity.BrooklynAppUnitTestSupport;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.Attributes;
+import brooklyn.entity.basic.BasicEntity;
 import brooklyn.entity.basic.BrooklynTaskTags;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityFactory;
-import brooklyn.entity.basic.EntitySubscriptionTest.RecordingSensorEventListener;
 import brooklyn.entity.basic.Lifecycle;
+
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.entity.basic.RecordingSensorEventListener;
+import org.apache.brooklyn.test.EntityTestUtils;
+import org.apache.brooklyn.test.entity.TestEntity;
+import org.apache.brooklyn.test.entity.TestEntityImpl;
+
 import brooklyn.entity.basic.ServiceStateLogic;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.trait.Changeable;
 import brooklyn.entity.trait.FailingEntity;
-import brooklyn.event.SensorEvent;
-import brooklyn.location.Location;
-import brooklyn.location.basic.SimulatedLocation;
-import brooklyn.management.Task;
+
+import org.apache.brooklyn.location.basic.SimulatedLocation;
+
 import brooklyn.test.Asserts;
-import brooklyn.test.EntityTestUtils;
-import brooklyn.test.entity.TestEntity;
-import brooklyn.test.entity.TestEntityImpl;
 import brooklyn.util.collections.MutableMap;
+import brooklyn.util.collections.MutableSet;
+import brooklyn.util.collections.QuorumCheck.QuorumChecks;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.time.Time;
 
@@ -114,6 +121,20 @@ public class DynamicClusterTest extends BrooklynAppUnitTestSupport {
         DynamicCluster c = app.createAndManageChild(EntitySpec.create(DynamicCluster.class));
         try {
             c.start(ImmutableList.of(loc));
+            fail();
+        } catch (Exception e) {
+            if (Exceptions.getFirstThrowableOfType(e, IllegalStateException.class) == null) throw e;
+        }
+    }
+    
+    @Test
+    public void startThenStopThenStartWithNewLocationFails() throws Exception {
+        DynamicCluster cluster = app.createAndManageChild(EntitySpec.create(DynamicCluster.class)
+                .configure(DynamicCluster.MEMBER_SPEC, EntitySpec.create(TestEntity.class)));
+        try {
+            cluster.start(ImmutableList.of(loc));
+            cluster.stop();
+            cluster.start(ImmutableList.of(loc2));
             fail();
         } catch (Exception e) {
             if (Exceptions.getFirstThrowableOfType(e, IllegalStateException.class) == null) throw e;
@@ -195,14 +216,14 @@ public class DynamicClusterTest extends BrooklynAppUnitTestSupport {
             .configure(DynamicCluster.MEMBER_SPEC, EntitySpec.create(TestEntity.class))
             .configure(DynamicCluster.INITIAL_SIZE, 1));
         
-        RecordingSensorEventListener r = new RecordingSensorEventListener();
+        RecordingSensorEventListener<Lifecycle> r = new RecordingSensorEventListener<>();
         app.subscribe(cluster, Attributes.SERVICE_STATE_ACTUAL, r);
 
         cluster.start(ImmutableList.of(loc));
         EntityTestUtils.assertAttributeEqualsEventually(cluster, Attributes.SERVICE_STATE_ACTUAL, Lifecycle.RUNNING);
-        for (SensorEvent<?> evt: r.events) {
+        for (SensorEvent<Lifecycle> evt: r.getEvents()) {
             if (evt.getValue()==Lifecycle.ON_FIRE)
-                Assert.fail("Should not have published "+Lifecycle.ON_FIRE+" during normal start up: "+r.events);
+                Assert.fail("Should not have published " + Lifecycle.ON_FIRE + " during normal start up: " + r.getEvents());
         }
     }
 
@@ -875,6 +896,18 @@ public class DynamicClusterTest extends BrooklynAppUnitTestSupport {
         assertEquals(cluster.getMembers().size(), 1);
     }
 
+    @Test
+    public void testWithNonStartableEntity() throws Exception {
+        DynamicCluster cluster = app.createAndManageChild(EntitySpec.create(DynamicCluster.class)
+                .configure(DynamicCluster.MEMBER_SPEC, EntitySpec.create(BasicEntity.class))
+                .configure(DynamicCluster.UP_QUORUM_CHECK, QuorumChecks.alwaysTrue())
+                .configure(DynamicCluster.INITIAL_SIZE, 2));
+        cluster.start(ImmutableList.of(loc));
+        
+        EntityTestUtils.assertAttributeEqualsEventually(cluster, Attributes.SERVICE_STATE_ACTUAL, Lifecycle.RUNNING);
+        assertTrue(cluster.getAttribute(Attributes.SERVICE_UP));
+    }
+
     private Throwable unwrapException(Throwable e) {
         if (e instanceof ExecutionException) {
             return unwrapException(e.getCause());
@@ -884,4 +917,70 @@ public class DynamicClusterTest extends BrooklynAppUnitTestSupport {
             return e;
         }
     }
+    
+    @Test
+    public void testDifferentFirstMemberSpec() throws Exception {
+        DynamicCluster cluster = app.createAndManageChild(EntitySpec.create(DynamicCluster.class)
+            .configure(DynamicCluster.FIRST_MEMBER_SPEC, 
+                EntitySpec.create(BasicEntity.class).configure(TestEntity.CONF_NAME, "first"))
+            .configure(DynamicCluster.MEMBER_SPEC, 
+                EntitySpec.create(BasicEntity.class).configure(TestEntity.CONF_NAME, "non-first"))
+            .configure(DynamicCluster.UP_QUORUM_CHECK, QuorumChecks.alwaysTrue())
+            .configure(DynamicCluster.INITIAL_SIZE, 3));
+        cluster.start(ImmutableList.of(loc));
+        
+        EntityTestUtils.assertAttributeEqualsEventually(cluster, Attributes.SERVICE_STATE_ACTUAL, Lifecycle.RUNNING);
+        assertTrue(cluster.getAttribute(Attributes.SERVICE_UP));
+        
+        assertEquals(cluster.getMembers().size(), 3);
+        
+        assertFirstAndNonFirstCounts(cluster.getMembers(), 1, 2);
+        
+        // and after re-size
+        cluster.resize(4);
+//        Entities.dumpInfo(cluster);
+        assertFirstAndNonFirstCounts(cluster.getMembers(), 1, 3);
+        
+        // and re-size to 1
+        cluster.resize(1);
+        assertFirstAndNonFirstCounts(cluster.getMembers(), 1, 0);
+        
+        // and re-size to 0
+        cluster.resize(0);
+        assertFirstAndNonFirstCounts(cluster.getMembers(), 0, 0);
+        
+        // and back to 3
+        cluster.resize(3);
+        assertFirstAndNonFirstCounts(cluster.getMembers(), 1, 2);
+    }
+
+    @Test
+    public void testPrefersMemberSpecLocation() throws Exception {
+        DynamicCluster cluster = app.createAndManageChild(EntitySpec.create(DynamicCluster.class)
+                .configure(DynamicCluster.MEMBER_SPEC, EntitySpec.create(TestEntity.class)
+                        .location(loc2))
+                .configure(DynamicCluster.INITIAL_SIZE, 1));
+        
+        cluster.start(ImmutableList.of(loc));
+        assertEquals(ImmutableList.copyOf(cluster.getLocations()), ImmutableList.of(loc));
+        
+        Entity member = Iterables.getOnlyElement(cluster.getMembers());
+        assertEquals(ImmutableList.copyOf(member.getLocations()), ImmutableList.of(loc2));
+    }
+
+
+    private void assertFirstAndNonFirstCounts(Collection<Entity> members, int expectedFirstCount, int expectedNonFirstCount) {
+        Set<Entity> found = MutableSet.of();
+        for (Entity e: members) {
+            if ("first".equals(e.getConfig(TestEntity.CONF_NAME))) found.add(e);
+        }
+        assertEquals(found.size(), expectedFirstCount);
+        
+        found.clear();
+        for (Entity e: members) {
+            if ("non-first".equals(e.getConfig(TestEntity.CONF_NAME))) found.add(e);
+        }
+        assertEquals(found.size(), expectedNonFirstCount);
+    }
+
 }

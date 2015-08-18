@@ -20,6 +20,8 @@ package brooklyn.entity.rebind.persister;
 
 import static org.testng.Assert.assertEquals;
 
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
@@ -28,26 +30,36 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 
+import org.apache.brooklyn.location.basic.SimulatedLocation;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.test.TestResourceUnavailableException;
+import org.apache.brooklyn.test.entity.LocalManagementContextForTests;
+import org.apache.brooklyn.test.entity.TestApplication;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+import org.apache.brooklyn.api.basic.BrooklynObject;
+import org.apache.brooklyn.api.catalog.CatalogItem;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Feed;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.entity.rebind.BrooklynObjectType;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.mementos.BrooklynMementoPersister.LookupContext;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.core.catalog.internal.CatalogItemBuilder;
+import org.apache.brooklyn.core.catalog.internal.CatalogItemDtoAbstract;
+import org.apache.brooklyn.core.catalog.internal.CatalogTestUtils;
+import org.apache.brooklyn.core.management.osgi.OsgiTestResources;
+import org.apache.brooklyn.core.management.osgi.OsgiVersionMoreEntityTest;
 
-import brooklyn.catalog.CatalogItem;
-import brooklyn.catalog.internal.CatalogItemBuilder;
-import brooklyn.catalog.internal.CatalogLibrariesDto;
-import brooklyn.entity.Entity;
-import brooklyn.entity.Feed;
 import brooklyn.entity.basic.Entities;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.location.Location;
-import brooklyn.location.LocationSpec;
-import brooklyn.management.ManagementContext;
-import brooklyn.mementos.BrooklynMementoPersister.LookupContext;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.Policy;
-import brooklyn.test.entity.TestApplication;
-import brooklyn.test.entity.TestEntity;
+import brooklyn.entity.group.DynamicCluster;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.collections.MutableSet;
@@ -102,6 +114,19 @@ public class XmlMementoSerializerTest {
     }
 
     @Test
+    public void testArraysAsList() throws Exception {
+        // For some reason Arrays.asList used in the catalog's libraries can't be deserialized correctly,
+        // but here works perfectly - the generated catalog xml contains
+        //    <libraries class="list">
+        //      <a ...>
+        //        <bundle....>
+        // which is deserialized as an ArrayList with a single member array of bundles.
+        // The cause is the class="list" type which should be java.util.Arrays$ArrayList instead.
+        Collection<String> obj = Arrays.asList("a", "b");
+        assertSerializeAndDeserialize(obj);
+    }
+
+    @Test
     public void testImmutableList() throws Exception {
         List<String> obj = ImmutableList.of("123");
         assertSerializeAndDeserialize(obj);
@@ -127,6 +152,12 @@ public class XmlMementoSerializerTest {
     }
 
     @Test
+    public void testClass() throws Exception {
+        Class<?> t = XmlMementoSerializer.class;
+        assertSerializeAndDeserialize(t);
+    }
+
+    @Test
     public void testEntity() throws Exception {
         final TestApplication app = TestApplication.Factory.newManagedInstanceForTests();
         ManagementContext managementContext = app.getManagementContext();
@@ -146,7 +177,7 @@ public class XmlMementoSerializerTest {
         ManagementContext managementContext = app.getManagementContext();
         try {
             @SuppressWarnings("deprecation")
-            final Location loc = managementContext.getLocationManager().createLocation(LocationSpec.create(brooklyn.location.basic.SimulatedLocation.class));
+            final Location loc = managementContext.getLocationManager().createLocation(LocationSpec.create(SimulatedLocation.class));
             serializer.setLookupContext(new LookupContextImpl(managementContext,
                     ImmutableList.<Entity>of(), ImmutableList.of(loc), ImmutableList.<Policy>of(),
                     ImmutableList.<Enricher>of(), ImmutableList.<Feed>of(), ImmutableList.<CatalogItem<?, ?>>of(), true));
@@ -161,12 +192,12 @@ public class XmlMementoSerializerTest {
         final TestApplication app = TestApplication.Factory.newManagedInstanceForTests();
         ManagementContext managementContext = app.getManagementContext();
         try {
-            CatalogItem<?, ?> catalogItem = CatalogItemBuilder.newEntity("registeredtypename")
+            CatalogItem<?, ?> catalogItem = CatalogItemBuilder.newEntity("symbolicName", "0.0.1")
                     .displayName("test catalog item")
                     .description("description")
                     .plan("yaml plan")
                     .iconUrl("iconUrl")
-                    .libraries(CatalogLibrariesDto.from(ImmutableList.of("library-url")))
+                    .libraries(CatalogItemDtoAbstract.parseLibraries(ImmutableList.of("library-url")))
                     .build();
             serializer.setLookupContext(new LookupContextImpl(managementContext,
                     ImmutableList.<Entity>of(), ImmutableList.<Location>of(), ImmutableList.<Policy>of(),
@@ -174,6 +205,32 @@ public class XmlMementoSerializerTest {
             assertSerializeAndDeserialize(catalogItem);
         } finally {
             Entities.destroyAll(managementContext);
+        }
+    }
+
+    @Test
+    public void testEntitySpec() throws Exception {
+        EntitySpec<?> obj = EntitySpec.create(TestEntity.class);
+        assertSerializeAndDeserialize(obj);
+    }
+    
+    @Test
+    public void testEntitySpecFromOsgi() throws Exception {
+        TestResourceUnavailableException.throwIfResourceUnavailable(getClass(), OsgiTestResources.BROOKLYN_TEST_MORE_ENTITIES_V1_PATH);
+        ManagementContext mgmt = LocalManagementContextForTests.builder(true).disableOsgi(false).build();
+        try {
+            CatalogItem<?, ?> ci = OsgiVersionMoreEntityTest.addMoreEntityV1(mgmt, "1.0");
+            
+            EntitySpec<DynamicCluster> spec = EntitySpec.create(DynamicCluster.class)
+                .configure(DynamicCluster.INITIAL_SIZE, 1)
+                .configure(DynamicCluster.MEMBER_SPEC, CatalogTestUtils.createEssentialEntitySpec(mgmt, ci));
+    
+            serializer.setLookupContext(new LookupContextImpl(mgmt,
+                ImmutableList.<Entity>of(), ImmutableList.<Location>of(), ImmutableList.<Policy>of(),
+                ImmutableList.<Enricher>of(), ImmutableList.<Feed>of(), ImmutableList.<CatalogItem<?,?>>of(), true));
+            assertSerializeAndDeserialize(spec);
+        } finally {
+            Entities.destroyAllCatching(mgmt);
         }
     }
 
@@ -367,6 +424,33 @@ public class XmlMementoSerializerTest {
                 throw new NoSuchElementException("no catalog item with id "+id+"; contenders are "+catalogItems.keySet());
             }
             return null;
+        }
+        
+        @Override
+        public BrooklynObject lookup(BrooklynObjectType type, String id) {
+            switch (type) {
+            case CATALOG_ITEM: return lookupCatalogItem(id);
+            case ENRICHER: return lookupEnricher(id);
+            case ENTITY: return lookupEntity(id);
+            case FEED: return lookupFeed(id);
+            case LOCATION: return lookupLocation(id);
+            case POLICY: return lookupPolicy(id);
+            case UNKNOWN: return null;
+            }
+            throw new IllegalStateException("Unexpected type "+type+" / id "+id);
+        }
+        @Override
+        public BrooklynObject peek(BrooklynObjectType type, String id) {
+            switch (type) {
+            case CATALOG_ITEM: return catalogItems.get(id);
+            case ENRICHER: return enrichers.get(id);
+            case ENTITY: return entities.get(id);
+            case FEED: return feeds.get(id);
+            case LOCATION: return locations.get(id);
+            case POLICY: return policies.get(id);
+            case UNKNOWN: return null;
+            }
+            throw new IllegalStateException("Unexpected type "+type+" / id "+id);
         }
     };
 }

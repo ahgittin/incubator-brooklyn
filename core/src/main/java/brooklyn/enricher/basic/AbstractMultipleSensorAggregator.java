@@ -20,17 +20,21 @@ package brooklyn.enricher.basic;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Map.Entry;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.event.SensorEventListener;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.entity.Entity;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
-import brooklyn.event.SensorEvent;
-import brooklyn.event.SensorEventListener;
+import brooklyn.config.BrooklynLogging;
 import brooklyn.util.collections.MutableMap;
 
 import com.google.common.base.Preconditions;
@@ -57,7 +61,8 @@ public abstract class AbstractMultipleSensorAggregator<U> extends AbstractAggreg
     
     @Override
     protected void setEntityBeforeSubscribingProducerChildrenEvents() {
-        if (LOG.isDebugEnabled()) LOG.debug("{} subscribing to children of {}", new Object[] {this, producer });
+        BrooklynLogging.log(LOG, BrooklynLogging.levelDebugOrTraceIfReadOnly(producer),
+            "{} subscribing to children of {}", this, producer);
         for (Sensor<?> sourceSensor: getSourceSensors()) {
             subscribeToChildren(producer, sourceSensor, this);
         }
@@ -84,7 +89,8 @@ public abstract class AbstractMultipleSensorAggregator<U> extends AbstractAggreg
 
     @Override
     protected void onProducerAdded(Entity producer) {
-        if (LOG.isDebugEnabled()) LOG.debug("{} listening to {}", new Object[] {this, producer});
+        BrooklynLogging.log(LOG, BrooklynLogging.levelDebugOrTraceIfReadOnly(producer),
+            "{} listening to {}", this, producer);
         synchronized (values) {
             for (Sensor<?> sensor: getSourceSensors()) {
                 Map<Entity,Object> vs = values.get(sensor.getName());
@@ -135,11 +141,26 @@ public abstract class AbstractMultipleSensorAggregator<U> extends AbstractAggreg
         onUpdated();
     }
 
-    @SuppressWarnings("unchecked")
     public <T> Map<Entity,T> getValues(Sensor<T> sensor) {
+        Map<Entity, T> valuesCopy = copyValues(sensor);
+        return coerceValues(valuesCopy, sensor.getType());
+    }
+
+    private <T> Map<Entity, T> coerceValues(Map<Entity, T> values, Class<? super T> type) {
+        Map<Entity, T> typedValues = MutableMap.of();
+        for (Entry<Entity, T> entry : values.entrySet()) {
+            @SuppressWarnings("unchecked")
+            T typedValue = (T) TypeCoercions.coerce(entry.getValue(), type);
+            typedValues.put(entry.getKey(), typedValue);
+        }
+        return typedValues;
+    }
+
+    private <T> Map<Entity, T> copyValues(Sensor<T> sensor) {
         synchronized (values) {
+            @SuppressWarnings("unchecked")
             Map<Entity, T> sv = (Map<Entity, T>) values.get(sensor.getName());
-            if (sv==null) return ImmutableMap.of();
+            //use MutableMap because of potentially null values
             return MutableMap.copyOf(sv).asUnmodifiable();
         }
     }

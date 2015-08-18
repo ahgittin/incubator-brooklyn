@@ -24,14 +24,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Group;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.core.internal.BrooklynFeatureEnablement;
+import org.apache.brooklyn.core.management.internal.ManagementContextInternal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.entity.Entity;
-import brooklyn.entity.Group;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.internal.BrooklynFeatureEnablement;
-import brooklyn.management.internal.ManagementContextInternal;
 import brooklyn.util.collections.SetFromLiveMap;
 
 import com.google.common.base.Optional;
@@ -54,7 +55,7 @@ import com.google.common.collect.Sets;
  * current number of members.
  */
 public abstract class AbstractGroupImpl extends AbstractEntity implements AbstractGroup {
-    private static final Logger log = LoggerFactory.getLogger(AbstractGroup.class);
+    private static final Logger log = LoggerFactory.getLogger(AbstractGroupImpl.class);
 
     private Set<Entity> members = Sets.newLinkedHashSet();
 
@@ -189,14 +190,16 @@ public abstract class AbstractGroupImpl extends AbstractEntity implements Abstra
                     Optional<Entity> result = Iterables.tryFind(getChildren(), new Predicate<Entity>() {
                         @Override
                         public boolean apply(Entity input) {
-                            return input.getConfig(DelegateEntity.DELEGATE_ENTITY).equals(member);
+                            Entity delegate = input.getConfig(DelegateEntity.DELEGATE_ENTITY);
+                            if (delegate == null) return false;
+                            return delegate.equals(member);
                         }
                     });
                     if (result.isPresent()) {
                         Entity child = result.get();
                         removeChild(child);
                         Entities.unmanage(child);
-                       }
+                    }
                 }
 
                 getManagementSupport().getEntityChangeListener().onMembersChanged();

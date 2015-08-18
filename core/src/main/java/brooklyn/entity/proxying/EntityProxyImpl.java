@@ -28,26 +28,28 @@ import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.management.TaskAdaptable;
+import org.apache.brooklyn.core.management.internal.EffectorUtils;
+import org.apache.brooklyn.core.management.internal.EntityManagerInternal;
+import org.apache.brooklyn.core.management.internal.ManagementTransitionMode;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.core.util.task.TaskTags;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.entity.Effector;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.AbstractEntity;
 import brooklyn.entity.basic.EntityInternal;
-import brooklyn.entity.basic.EntityLocal;
 import brooklyn.entity.basic.EntityTransientCopyInternal;
+import brooklyn.entity.basic.EntityTransientCopyInternal.SpecialEntityTransientCopyInternal;
 import brooklyn.entity.effector.EffectorWithBody;
 import brooklyn.entity.rebind.RebindManagerImpl.RebindTracker;
-import brooklyn.management.ManagementContext;
-import brooklyn.management.TaskAdaptable;
-import brooklyn.management.internal.EffectorUtils;
-import brooklyn.management.internal.EntityManagerInternal;
-import brooklyn.management.internal.ManagementTransitionInfo.ManagementTransitionMode;
-import brooklyn.util.config.ConfigBag;
-import brooklyn.util.task.DynamicTasks;
-import brooklyn.util.task.TaskTags;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.common.collect.Sets;
 
@@ -100,6 +102,9 @@ public class EntityProxyImpl implements java.lang.reflect.InvocationHandler {
             extras.removeAll(ENTITY_NON_EFFECTOR_METHODS);
             throw new IllegalStateException("Entity read-only methods contains items not known as Entity methods: "+
                 extras);
+        }
+        for (Method m : SpecialEntityTransientCopyInternal.class.getMethods()) {
+            ENTITY_PERMITTED_READ_ONLY_METHODS.add(new MethodSignature(m));
         }
     }
     
@@ -250,6 +255,11 @@ public class EntityProxyImpl implements java.lang.reflect.InvocationHandler {
         public String toString() {
             return name+Arrays.toString(parameterTypes);
         }
+    }
+    
+    @VisibleForTesting
+    public Entity getDelegate() {
+        return delegate;
     }
     
     @Override

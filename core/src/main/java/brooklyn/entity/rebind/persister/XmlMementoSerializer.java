@@ -22,15 +22,33 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.IOException;
 import java.io.Writer;
+import java.util.NoSuchElementException;
+import java.util.Stack;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.brooklyn.api.basic.AbstractBrooklynObjectSpec;
+import org.apache.brooklyn.api.catalog.CatalogItem;
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Feed;
+import org.apache.brooklyn.api.entity.trait.Identifiable;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.api.management.classloading.BrooklynClassLoadingContext;
+import org.apache.brooklyn.api.mementos.BrooklynMementoPersister.LookupContext;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.core.catalog.internal.CatalogBundleDto;
+import org.apache.brooklyn.core.catalog.internal.CatalogUtils;
+import org.apache.brooklyn.core.management.classloading.BrooklynClassLoadingContextSequential;
+import org.apache.brooklyn.core.management.classloading.ClassLoaderFromBrooklynClassLoadingContext;
+import org.apache.brooklyn.core.management.classloading.JavaBrooklynClassLoadingContext;
+import org.apache.brooklyn.core.util.xstream.XmlSerializer;
 
-import brooklyn.catalog.CatalogItem;
-import brooklyn.entity.Effector;
-import brooklyn.entity.Entity;
-import brooklyn.entity.Feed;
 import brooklyn.entity.basic.BasicParameterType;
 import brooklyn.entity.effector.EffectorAndBody;
 import brooklyn.entity.effector.EffectorTasks.EffectorBodyTaskFactory;
@@ -38,29 +56,25 @@ import brooklyn.entity.effector.EffectorTasks.EffectorTaskFactory;
 import brooklyn.entity.rebind.dto.BasicCatalogItemMemento;
 import brooklyn.entity.rebind.dto.BasicEnricherMemento;
 import brooklyn.entity.rebind.dto.BasicEntityMemento;
+import brooklyn.entity.rebind.dto.BasicFeedMemento;
 import brooklyn.entity.rebind.dto.BasicLocationMemento;
 import brooklyn.entity.rebind.dto.BasicPolicyMemento;
 import brooklyn.entity.rebind.dto.MutableBrooklynMemento;
-import brooklyn.entity.trait.Identifiable;
 import brooklyn.event.basic.BasicAttributeSensor;
 import brooklyn.event.basic.BasicConfigKey;
-import brooklyn.location.Location;
-import brooklyn.management.ManagementContext;
-import brooklyn.management.Task;
-import brooklyn.mementos.BrooklynMementoPersister.LookupContext;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.Policy;
 import brooklyn.util.exceptions.Exceptions;
-import brooklyn.util.xstream.XmlSerializer;
+import brooklyn.util.text.Strings;
 
 import com.thoughtworks.xstream.converters.Converter;
 import com.thoughtworks.xstream.converters.MarshallingContext;
 import com.thoughtworks.xstream.converters.SingleValueConverter;
 import com.thoughtworks.xstream.converters.UnmarshallingContext;
+import com.thoughtworks.xstream.converters.reflection.ReflectionConverter;
 import com.thoughtworks.xstream.core.ReferencingMarshallingContext;
 import com.thoughtworks.xstream.core.util.HierarchicalStreams;
 import com.thoughtworks.xstream.io.HierarchicalStreamReader;
 import com.thoughtworks.xstream.io.HierarchicalStreamWriter;
+import com.thoughtworks.xstream.io.path.PathTrackingReader;
 import com.thoughtworks.xstream.mapper.Mapper;
 import com.thoughtworks.xstream.mapper.MapperWrapper;
 
@@ -72,12 +86,12 @@ public class XmlMementoSerializer<T> extends XmlSerializer<T> implements Memento
 
     private static final Logger LOG = LoggerFactory.getLogger(XmlMementoSerializer.class);
 
-    @SuppressWarnings("unused")
     private final ClassLoader classLoader;
     private LookupContext lookupContext;
 
     public XmlMementoSerializer(ClassLoader classLoader) {
         this.classLoader = checkNotNull(classLoader, "classLoader");
+        xstream.setClassLoader(this.classLoader);
         
         // old (deprecated in 070? or earlier) single-file persistence uses this keyword; TODO remove soon in 080 ?
         xstream.alias("brooklyn", MutableBrooklynMemento.class);
@@ -85,9 +99,11 @@ public class XmlMementoSerializer<T> extends XmlSerializer<T> implements Memento
         xstream.alias("entity", BasicEntityMemento.class);
         xstream.alias("location", BasicLocationMemento.class);
         xstream.alias("policy", BasicPolicyMemento.class);
+        xstream.alias("feed", BasicFeedMemento.class);
         xstream.alias("enricher", BasicEnricherMemento.class);
         xstream.alias("configKey", BasicConfigKey.class);
         xstream.alias("catalogItem", BasicCatalogItemMemento.class);
+        xstream.alias("bundle", CatalogBundleDto.class);
         xstream.alias("attributeSensor", BasicAttributeSensor.class);
 
         xstream.alias("effector", Effector.class);
@@ -106,17 +122,23 @@ public class XmlMementoSerializer<T> extends XmlSerializer<T> implements Memento
         xstream.registerConverter(new EntityConverter());
         xstream.registerConverter(new FeedConverter());
         xstream.registerConverter(new CatalogItemConverter());
+        xstream.registerConverter(new SpecConverter());
 
         xstream.registerConverter(new ManagementContextConverter());
-        
         xstream.registerConverter(new TaskConverter(xstream.getMapper()));
+    
+        //For compatibility with existing persistence stores content.
+        xstream.aliasField("registeredTypeName", BasicCatalogItemMemento.class, "symbolicName");
+        xstream.registerLocalConverter(BasicCatalogItemMemento.class, "libraries", new CatalogItemLibrariesConverter());
     }
     
     // Warning: this is called in the super-class constuctor, so before this constructor!
     @Override
     protected MapperWrapper wrapMapper(MapperWrapper next) {
-        MapperWrapper result = new CustomMapper(next, Entity.class, "entityProxy");
-        return new CustomMapper(result, Location.class, "locationProxy");
+        MapperWrapper mapper = super.wrapMapper(next);
+        mapper = new CustomMapper(mapper, Entity.class, "entityProxy");
+        mapper = new CustomMapper(mapper, Location.class, "locationProxy");
+        return mapper;
     }
 
     @Override
@@ -333,5 +355,152 @@ public class XmlMementoSerializer<T> extends XmlSerializer<T> implements Memento
             return lookupContext.lookupManagementContext();
         }
     }
+
+    /** When reading/writing specs, it checks whether there is a catalog item id set and uses it to load */
+    public class SpecConverter extends ReflectionConverter {
+        SpecConverter() {
+            super(xstream.getMapper(), xstream.getReflectionProvider());
+        }
+        @Override
+        public boolean canConvert(@SuppressWarnings("rawtypes") Class type) {
+            return AbstractBrooklynObjectSpec.class.isAssignableFrom(type);
+        }
+        @Override
+        public void marshal(Object source, HierarchicalStreamWriter writer, MarshallingContext context) {
+            if (source == null) return;
+            AbstractBrooklynObjectSpec<?, ?> spec = (AbstractBrooklynObjectSpec<?, ?>) source;
+            String catalogItemId = spec.getCatalogItemId();
+            if (Strings.isNonBlank(catalogItemId)) {
+                // write this field first, so we can peek at it when we read
+                writer.startNode("catalogItemId");
+                writer.setValue(catalogItemId);
+                writer.endNode();
+                
+                // we're going to write the catalogItemId field twice :( but that's okay.
+                // better solution would be to have mark/reset on reader so we can peek for such a field;
+                // see comment below
+                super.marshal(source, writer, context);
+            } else {
+                super.marshal(source, writer, context);
+            }
+        }
+        @Override
+        public Object unmarshal(HierarchicalStreamReader reader, UnmarshallingContext context) {
+            String catalogItemId = null;
+            instantiateNewInstanceSettingCache(reader, context);
+            
+            if (reader instanceof PathTrackingReader) {
+                // have to assume this is first; there is no mark/reset support on these readers
+                // (if there were then it would be easier, we could just look for that child anywhere,
+                // and not need a custom writer!)
+                if ("catalogItemId".equals( ((PathTrackingReader)reader).peekNextChild() )) {
+                    // cache the instance
+                    
+                    reader.moveDown();
+                    catalogItemId = reader.getValue();
+                    reader.moveUp();
+                }
+            }
+            boolean customLoaderSet = false;
+            try {
+                if (Strings.isNonBlank(catalogItemId)) {
+                    if (lookupContext==null) throw new NullPointerException("lookupContext required to load catalog item "+catalogItemId);
+                    CatalogItem<?, ?> cat = CatalogUtils.getCatalogItemOptionalVersion(lookupContext.lookupManagementContext(), catalogItemId);
+                    if (cat==null) throw new NoSuchElementException("catalog item: "+catalogItemId);
+                    BrooklynClassLoadingContext clcNew = CatalogUtils.newClassLoadingContext(lookupContext.lookupManagementContext(), cat);
+                    pushXstreamCustomClassLoader(clcNew);
+                    customLoaderSet = true;
+                }
+                
+                AbstractBrooklynObjectSpec<?, ?> result = (AbstractBrooklynObjectSpec<?, ?>) super.unmarshal(reader, context);
+                // we wrote it twice so this shouldn't be necessary; but if we fix it so we only write once, we'd need this
+                result.catalogItemId(catalogItemId);
+                return result;
+            } finally {
+                instance = null;
+                if (customLoaderSet) {
+                    popXstreamCustomClassLoader();
+                }
+            }
+        }
+
+        Object instance;
+        
+        @Override
+        protected Object instantiateNewInstance(HierarchicalStreamReader reader, UnmarshallingContext context) {
+            // the super calls getAttribute which requires that we have not yet done moveDown,
+            // so we do this earlier and cache it for when we call super.unmarshal
+            if (instance==null)
+                throw new IllegalStateException("Instance should be created and cached");
+            return instance;
+        }
+        protected void instantiateNewInstanceSettingCache(HierarchicalStreamReader reader, UnmarshallingContext context) {
+            instance = super.instantiateNewInstance(reader, context);
+        }
+    }
     
+    Stack<BrooklynClassLoadingContext> contexts = new Stack<BrooklynClassLoadingContext>();
+    Stack<ClassLoader> cls = new Stack<ClassLoader>();
+    AtomicReference<Thread> xstreamLockOwner = new AtomicReference<Thread>();
+    int lockCount;
+    
+    /** Must be accompanied by a corresponding {@link #popXstreamCustomClassLoader()} when finished. */
+    @SuppressWarnings("deprecation")
+    protected void pushXstreamCustomClassLoader(BrooklynClassLoadingContext clcNew) {
+        acquireXstreamLock();
+        BrooklynClassLoadingContext oldClc;
+        if (!contexts.isEmpty()) {
+            oldClc = contexts.peek();
+        } else {
+            // TODO XmlMementoSerializer should take a BCLC instead of a CL
+            oldClc = JavaBrooklynClassLoadingContext.create(lookupContext.lookupManagementContext(), xstream.getClassLoader());
+        }
+        BrooklynClassLoadingContextSequential clcMerged = new BrooklynClassLoadingContextSequential(lookupContext.lookupManagementContext(),
+            oldClc, clcNew);
+        contexts.push(clcMerged);
+        cls.push(xstream.getClassLoader());
+        ClassLoader newCL = ClassLoaderFromBrooklynClassLoadingContext.of(clcMerged);
+        xstream.setClassLoader(newCL);
+    }
+
+    protected void popXstreamCustomClassLoader() {
+        synchronized (xstreamLockOwner) {
+            releaseXstreamLock();
+            xstream.setClassLoader(cls.pop());
+            contexts.pop();
+        }
+    }
+    
+    protected void acquireXstreamLock() {
+        synchronized (xstreamLockOwner) {
+            while (true) {
+                if (xstreamLockOwner.compareAndSet(null, Thread.currentThread()) || 
+                    Thread.currentThread().equals( xstreamLockOwner.get() )) {
+                    break;
+                }
+                try {
+                    xstreamLockOwner.wait(1000);
+                } catch (InterruptedException e) {
+                    throw Exceptions.propagate(e);
+                }
+            }
+            lockCount++;
+        }
+    }
+
+    protected void releaseXstreamLock() {
+        synchronized (xstreamLockOwner) {
+            if (lockCount<=0) {
+                throw new IllegalStateException("xstream not locked");
+            }
+            if (--lockCount == 0) {
+                if (!xstreamLockOwner.compareAndSet(Thread.currentThread(), null)) {
+                    Thread oldOwner = xstreamLockOwner.getAndSet(null);
+                    throw new IllegalStateException("xstream was locked by "+oldOwner+" but unlock attempt by "+Thread.currentThread());
+                }
+                xstreamLockOwner.notifyAll();
+            }
+        }
+    }
+
 }

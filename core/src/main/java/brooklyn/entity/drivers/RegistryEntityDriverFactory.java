@@ -25,8 +25,11 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import brooklyn.entity.Entity;
-import brooklyn.location.Location;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.drivers.DriverDependentEntity;
+import org.apache.brooklyn.api.entity.drivers.EntityDriver;
+import org.apache.brooklyn.api.entity.drivers.EntityDriverManager;
+import org.apache.brooklyn.api.location.Location;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Throwables;

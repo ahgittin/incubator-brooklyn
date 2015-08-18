@@ -18,7 +18,8 @@
  */
 package brooklyn.event.feed.windows;
 
-import brooklyn.event.AttributeSensor;
+import org.apache.brooklyn.api.event.AttributeSensor;
+
 import brooklyn.event.feed.PollConfig;
 
 import com.google.common.base.Function;
@@ -31,6 +32,7 @@ public class WindowsPerformanceCounterPollConfig<T> extends PollConfig<Object, T
     @SuppressWarnings({ "unchecked", "rawtypes" })
     public WindowsPerformanceCounterPollConfig(AttributeSensor<T> sensor) {
         super(sensor);
+        description(sensor.getDescription());
         onSuccess((Function)Functions.identity());
     }
 
@@ -46,9 +48,7 @@ public class WindowsPerformanceCounterPollConfig<T> extends PollConfig<Object, T
     public WindowsPerformanceCounterPollConfig<T> performanceCounterName(String val) {
         this.performanceCounterName = val; return this;
     }
+
+    @Override protected String toStringPollSource() { return performanceCounterName; }
     
-    @Override
-    public String toString() {
-        return "windowsPerformanceCounter["+performanceCounterName+"]";
-    }
 }

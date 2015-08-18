@@ -20,28 +20,30 @@ package brooklyn.entity.software.mysql;
 
 import java.io.File;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntityInitializer;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.location.MachineLocation;
+import org.apache.brooklyn.api.location.OsDetails;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.core.util.task.Tasks;
+import org.apache.brooklyn.core.util.task.ssh.SshTasks;
+import org.apache.brooklyn.core.util.task.system.ProcessTaskWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.BasicStartable;
 import brooklyn.entity.basic.BrooklynTaskTags;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.entity.proxying.EntityInitializer;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.software.MachineLifecycleEffectorTasks;
 import brooklyn.entity.software.SshEffectorTasks;
-import brooklyn.location.MachineLocation;
-import brooklyn.location.OsDetails;
-import brooklyn.location.basic.BasicOsDetails.OsVersions;
-import brooklyn.location.basic.LocalhostMachineProvisioningLocation.LocalhostMachine;
-import brooklyn.location.basic.SshMachineLocation;
+
+import org.apache.brooklyn.location.basic.BasicOsDetails.OsVersions;
+import org.apache.brooklyn.location.basic.LocalhostMachineProvisioningLocation.LocalhostMachine;
+import org.apache.brooklyn.location.basic.SshMachineLocation;
+
 import brooklyn.util.ssh.BashCommands;
-import brooklyn.util.task.DynamicTasks;
-import brooklyn.util.task.Tasks;
-import brooklyn.util.task.ssh.SshTasks;
-import brooklyn.util.task.system.ProcessTaskWrapper;
 import brooklyn.util.text.ComparableVersion;
 import brooklyn.util.time.Duration;
 import brooklyn.util.time.Time;
@@ -89,17 +91,18 @@ public class DynamicToyMySqlEntityBuilder {
     public static String getOsTag(Entity e) {
         // e.g. "osx10.6-x86_64"; see http://www.mysql.com/downloads/mysql/#downloads
         OsDetails os = ((SshMachineLocation)Iterables.getOnlyElement(e.getLocations())).getOsDetails();
-        if (os == null) return "linux2.6-i686";
+        if (os == null) return "linux-glibc2.5-x86_64";
         if (os.isMac()) {
-            String osp1 = os.getVersion()==null ? "osx10.5" //lowest common denominator
-                : new ComparableVersion(os.getVersion()).isGreaterThanOrEqualTo(OsVersions.MAC_10_6) ? "osx10.6"
-                : new ComparableVersion(os.getVersion()).isGreaterThanOrEqualTo(OsVersions.MAC_10_5) ? "osx10.5"
-                : "osx10.5";  //lowest common denominator
-            String osp2 = os.is64bit() ? "x86_64" : "x86";
-            return osp1+"-"+osp2;
+            String osp1 = os.getVersion()==null ? "osx10.8" //lowest common denominator
+                : new ComparableVersion(os.getVersion()).isGreaterThanOrEqualTo(OsVersions.MAC_10_9) ? "osx10.9"
+                : "osx10.8";  //lowest common denominator
+            if (!os.is64bit()) {
+                throw new IllegalStateException("Only 64 bit MySQL build is available for OS X");
+            }
+            return osp1+"-x86_64";
         }
         //assume generic linux
-        String osp1 = "linux2.6";
+        String osp1 = "linux-glibc2.5";
         String osp2 = os.is64bit() ? "x86_64" : "i686";
         return osp1+"-"+osp2;
     }
@@ -149,10 +152,19 @@ public class DynamicToyMySqlEntityBuilder {
                 // and set the PID
                 entity().setAttribute(Attributes.PID, 
                         Integer.parseInt(DynamicTasks.queue(SshEffectorTasks.ssh("cat "+dir(entity)+"/*/data/*.pid")).block().getStdout().trim()));
+                
+                // TODO Without this, tests fail because nothing else sets serviceUp!
+                // Really should set this with a Feed that checks pid periodically.
+                // Should this instead be using SERVICE_NOT_UP_INDICATORS?
+                entity().setAttribute(Attributes.SERVICE_UP, true);
             }
 
             @Override
             protected String stopProcessesAtMachine() {
+                // TODO Where is best place to set? 
+                // Really should set this with a Feed that checks pid periodically.
+                entity().setAttribute(Attributes.SERVICE_UP, false);
+                
                 Integer pid = entity().getAttribute(Attributes.PID);
                 if (pid==null) {
                     log.info("mysql not running");

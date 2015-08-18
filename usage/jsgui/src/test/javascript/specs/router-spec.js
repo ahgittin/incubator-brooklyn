@@ -17,11 +17,8 @@
  * under the License.
 */
 define([
-    "brooklyn", "router", "model/ha"
-], function (Brooklyn, Router, ha) {
-
-    ha.url = "fixtures/ha-summary.json";
-    ha.loaded = true;
+    "brooklyn", "router"
+], function (Brooklyn, Router) {
 
     var View = Backbone.View.extend({
         render:function () {

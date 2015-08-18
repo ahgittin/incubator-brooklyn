@@ -21,11 +21,13 @@ package brooklyn.entity.rebind;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.apache.brooklyn.api.basic.BrooklynObject;
+import org.apache.brooklyn.api.entity.rebind.BrooklynObjectType;
+import org.apache.brooklyn.api.entity.rebind.PersistenceExceptionHandler;
+import org.apache.brooklyn.api.mementos.Memento;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.basic.BrooklynObject;
-import brooklyn.mementos.Memento;
 import brooklyn.util.exceptions.Exceptions;
 
 import com.google.common.collect.Sets;
@@ -82,16 +84,18 @@ public class PersistenceExceptionHandlerImpl implements PersistenceExceptionHand
         onErrorImpl(errmsg, e, prevFailedPersisters.add(id));
     }
     
-    protected void onErrorImpl(String errmsg, Exception e, boolean isRepeat) {
+    protected void onErrorImpl(String errmsg, Exception e, boolean isNew) {
+        // TODO the default behaviour is simply to warn; we should have a "fail_at_end" behaviour,
+        // and a way for other subsystems to tune in to such failures
         Exceptions.propagateIfFatal(e);
         if (isActive()) {
-            if (isRepeat) {
+            if (!isNew) {
                 if (LOG.isDebugEnabled()) LOG.debug("Repeating problem: "+errmsg, e);
             } else {
-                LOG.warn("Problem: "+errmsg, e);
+                LOG.warn("Problem persisting (ignoring): "+errmsg, e);
             }
         } else {
-            if (isRepeat) {
+            if (!isNew) {
                 if (LOG.isTraceEnabled()) LOG.trace("Repeating problem: "+errmsg+"; but no longer active (ignoring)", e);
             } else {
                 if (LOG.isDebugEnabled()) LOG.debug("Problem: "+errmsg+"; but no longer active (ignoring)", e);

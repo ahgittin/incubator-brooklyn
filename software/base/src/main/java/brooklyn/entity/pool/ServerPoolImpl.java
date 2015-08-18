@@ -22,11 +22,20 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.location.LocationDefinition;
+import org.apache.brooklyn.api.location.MachineLocation;
+import org.apache.brooklyn.api.location.NoMachinesAvailableException;
+import org.apache.brooklyn.api.management.LocationManager;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.api.policy.PolicySpec;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.EntityInternal;
@@ -35,21 +44,14 @@ import brooklyn.entity.effector.Effectors;
 import brooklyn.entity.group.AbstractMembershipTrackingPolicy;
 import brooklyn.entity.group.DynamicClusterImpl;
 import brooklyn.entity.trait.Startable;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.Sensors;
-import brooklyn.location.Location;
-import brooklyn.location.LocationDefinition;
-import brooklyn.location.MachineLocation;
-import brooklyn.location.NoMachinesAvailableException;
-import brooklyn.location.basic.BasicLocationDefinition;
-import brooklyn.location.basic.Machines;
-import brooklyn.location.dynamic.DynamicLocation;
-import brooklyn.management.LocationManager;
-import brooklyn.management.Task;
-import brooklyn.policy.PolicySpec;
+
+import org.apache.brooklyn.location.basic.BasicLocationDefinition;
+import org.apache.brooklyn.location.basic.Machines;
+import org.apache.brooklyn.location.dynamic.DynamicLocation;
+
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.guava.Maybe;
-import brooklyn.util.task.DynamicTasks;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;

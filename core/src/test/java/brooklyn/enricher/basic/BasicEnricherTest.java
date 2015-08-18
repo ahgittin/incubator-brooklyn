@@ -22,6 +22,12 @@ import static org.testng.Assert.assertEquals;
 
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.EnricherSpec;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+import org.apache.brooklyn.test.entity.TestApplication;
+import org.apache.brooklyn.test.entity.TestApplicationNoEnrichersImpl;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -31,14 +37,8 @@ import brooklyn.config.ConfigKey;
 import brooklyn.entity.BrooklynAppUnitTestSupport;
 import brooklyn.entity.basic.ApplicationBuilder;
 import brooklyn.entity.basic.BrooklynConfigKeys;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.event.basic.BasicConfigKey;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.EnricherSpec;
-import brooklyn.test.entity.TestApplication;
-import brooklyn.test.entity.TestApplicationNoEnrichersImpl;
 import brooklyn.util.collections.MutableSet;
-import brooklyn.util.flags.SetFromFlag;
 
 /**
  * Test that enricher can be created and accessed, by construction and by spec
@@ -76,8 +76,8 @@ public class BasicEnricherTest extends BrooklynAppUnitTestSupport {
     public void testAddInstance() throws Exception {
         MyEnricher enricher = new MyEnricher();
         enricher.setDisplayName("Bob");
-        enricher.setConfig(MyEnricher.STR_KEY, "aval");
-        enricher.setConfig(MyEnricher.INT_KEY, 2);
+        enricher.config().set(MyEnricher.STR_KEY, "aval");
+        enricher.config().set(MyEnricher.INT_KEY, 2);
         app.addEnricher(enricher);
         
         assertEquals(enricher.getDisplayName(), "Bob");

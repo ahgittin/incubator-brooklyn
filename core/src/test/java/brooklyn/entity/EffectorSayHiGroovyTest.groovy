@@ -33,13 +33,18 @@ import brooklyn.entity.basic.BrooklynTaskTags
 import brooklyn.entity.basic.Entities
 import brooklyn.entity.basic.ExplicitEffector
 import brooklyn.entity.basic.MethodEffector
-import brooklyn.entity.proxying.EntitySpec
-import brooklyn.entity.proxying.ImplementedBy
+import org.apache.brooklyn.api.entity.proxying.EntitySpec
+import org.apache.brooklyn.api.entity.proxying.ImplementedBy
 import brooklyn.entity.trait.Startable
-import brooklyn.management.ManagementContext
-import brooklyn.management.Task
-import brooklyn.management.internal.EffectorUtils
-import brooklyn.test.entity.TestApplication
+
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.management.ManagementContext
+import org.apache.brooklyn.api.management.Task
+
+import org.apache.brooklyn.core.management.internal.EffectorUtils
+
+import org.apache.brooklyn.test.entity.TestApplication
 
 /**
  * Test the operation of the {@link Effector} implementations.

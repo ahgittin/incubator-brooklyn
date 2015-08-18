@@ -31,8 +31,8 @@
     <parent>
         <groupId>org.apache.brooklyn</groupId>
         <artifactId>brooklyn-parent</artifactId>
-        <version>0.7.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
-        <relativePath>../pom.xml</relativePath>
+        <version>0.8.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
+        <relativePath>../parent/pom.xml</relativePath>
     </parent>
 
     <dependencies>
@@ -51,21 +51,25 @@
         <dependency>
             <groupId>org.apache.brooklyn</groupId>
             <artifactId>brooklyn-utils-groovy</artifactId>
-            <version>${brooklyn.version}</version>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.brooklyn.camp</groupId>
             <artifactId>camp-base</artifactId>
-            <version>${brooklyn.version}</version>
+            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.brooklyn.camp</groupId>
             <artifactId>camp-base</artifactId>
-            <version>${brooklyn.version}</version>
+            <version>${project.version}</version>
             <classifier>tests</classifier>
             <scope>test</scope>
         </dependency>
-
+        <dependency>
+            <groupId>io.cloudsoft.windows</groupId>
+            <artifactId>winrm4j</artifactId>
+            <version>${winrm4j.version}</version>
+        </dependency>
         <dependency>
             <groupId>net.schmizz</groupId>
             <artifactId>sshj</artifactId>
@@ -228,4 +232,35 @@
         </dependency>
     </dependencies>
 
+    <build>
+        <plugins>
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <inherited>true</inherited>
+                <executions>
+                    <!-- 
+                      Compile only Groovy files with the eclipse-groovy compiler.
+                      Java files compiled by default-testCompile execution inherited from parent.
+                    -->
+                    <execution>
+                        <id>groovy-testCompile</id>
+                        <phase>test-compile</phase>
+                        <goals>
+                          <goal>testCompile</goal>
+                        </goals>
+                        <configuration>
+                            <compilerId>groovy-eclipse-compiler</compilerId>
+                            <includes>
+                              <include>**/*.groovy</include>
+                            </includes>
+                            <fork>true</fork>
+                            <verbose>false</verbose>
+                            <source>${java.version}</source>
+                            <target>${java.version}</target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

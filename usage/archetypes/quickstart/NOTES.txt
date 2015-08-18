@@ -32,11 +32,11 @@ To test a build:
 
     pushd /tmp
     rm -rf brooklyn-sample
-    export BV=0.7.0-SNAPSHOT    # BROOKLYN_VERSION
+    export BV=0.8.0-SNAPSHOT    # BROOKLYN_VERSION
     
     mvn archetype:generate                                  \
                                                             \
-      -DarchetypeGroupId=io.brooklyn                        \
+      -DarchetypeGroupId=org.apache.brooklyn                \
       -DarchetypeArtifactId=brooklyn-archetype-quickstart   \
       -DarchetypeVersion=${BV} \
       \
@@ -50,7 +50,7 @@ To test a build:
     cd brooklyn-sample
     mvn clean assembly:assembly
     cd target/brooklyn-sample-0.1.0-SNAPSHOT-dist/brooklyn-sample-0.1.0-SNAPSHOT/
-    ./start.sh launch --cluster
+    ./start.sh launch --cluster --location localhost
 
 
 References

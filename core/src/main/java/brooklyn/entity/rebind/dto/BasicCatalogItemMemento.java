@@ -19,16 +19,18 @@
 package brooklyn.entity.rebind.dto;
 
 import java.io.Serializable;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
 
 import org.codehaus.jackson.annotate.JsonAutoDetect;
+import org.apache.brooklyn.api.catalog.CatalogItem;
+import org.apache.brooklyn.api.mementos.CatalogItemMemento;
+import org.apache.brooklyn.core.catalog.internal.BasicBrooklynCatalog;
+import org.apache.brooklyn.core.catalog.internal.CatalogUtils;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
-
-import brooklyn.catalog.CatalogItem;
-import brooklyn.mementos.CatalogItemMemento;
 
 @JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.ANY, getterVisibility = JsonAutoDetect.Visibility.NONE)
 public class BasicCatalogItemMemento extends AbstractMemento implements CatalogItemMemento, Serializable {
@@ -41,23 +43,24 @@ public class BasicCatalogItemMemento extends AbstractMemento implements CatalogI
 
     public static class Builder extends AbstractMemento.Builder<Builder> {
         protected String description;
-        protected String registeredTypeName;
+        protected String symbolicName;
         protected String iconUrl;
         protected String javaType;
         protected String version;
         protected String planYaml;
-        protected CatalogItem.CatalogItemLibraries libraries;
+        protected Collection<CatalogItem.CatalogBundle> libraries;
         protected CatalogItem.CatalogItemType catalogItemType;
         protected Class<?> catalogItemJavaType;
         protected Class<?> specType;
+        protected boolean deprecated;
 
         public Builder description(String description) {
             this.description = description;
             return self();
         }
 
-        public Builder registeredTypeName(String registeredTypeName) {
-            this.registeredTypeName = registeredTypeName;
+        public Builder symbolicName(String symbolicName) {
+            this.symbolicName = symbolicName;
             return self();
         }
 
@@ -81,7 +84,7 @@ public class BasicCatalogItemMemento extends AbstractMemento implements CatalogI
             return self();
         }
 
-        public Builder libraries(CatalogItem.CatalogItemLibraries libraries) {
+        public Builder libraries(Collection<CatalogItem.CatalogBundle> libraries) {
             this.libraries = libraries;
             return self();
         }
@@ -101,10 +104,15 @@ public class BasicCatalogItemMemento extends AbstractMemento implements CatalogI
             return self();
         }
 
+        public Builder deprecated(boolean deprecated) {
+            this.deprecated = deprecated;
+            return self();
+        }
+
         public Builder from(CatalogItemMemento other) {
             super.from(other);
             description = other.getDescription();
-            registeredTypeName = other.getRegisteredTypeName();
+            symbolicName = other.getSymbolicName();
             iconUrl = other.getIconUrl();
             javaType = other.getJavaType();
             version = other.getVersion();
@@ -113,6 +121,7 @@ public class BasicCatalogItemMemento extends AbstractMemento implements CatalogI
             catalogItemType = other.getCatalogItemType();
             catalogItemJavaType = other.getCatalogItemJavaType();
             specType = other.getSpecType();
+            deprecated = other.isDeprecated();
             return self();
         }
 
@@ -122,15 +131,16 @@ public class BasicCatalogItemMemento extends AbstractMemento implements CatalogI
     }
 
     private String description;
-    private String registeredTypeName;
+    private String symbolicName;
     private String iconUrl;
     private String javaType;
     private String version;
     private String planYaml;
-    private CatalogItem.CatalogItemLibraries libraries;
+    private Collection<CatalogItem.CatalogBundle> libraries;
     private CatalogItem.CatalogItemType catalogItemType;
     private Class<?> catalogItemJavaType;
     private Class<?> specType;
+    private boolean deprecated;
 
     @SuppressWarnings("unused") // For deserialisation
     private BasicCatalogItemMemento() {}
@@ -138,7 +148,7 @@ public class BasicCatalogItemMemento extends AbstractMemento implements CatalogI
     protected BasicCatalogItemMemento(Builder builder) {
         super(builder);
         this.description = builder.description;
-        this.registeredTypeName = builder.registeredTypeName;
+        this.symbolicName = builder.symbolicName;
         this.iconUrl = builder.iconUrl;
         this.version = builder.version;
         this.planYaml = builder.planYaml;
@@ -147,6 +157,12 @@ public class BasicCatalogItemMemento extends AbstractMemento implements CatalogI
         this.catalogItemType = builder.catalogItemType;
         this.specType = builder.specType;
         this.javaType = builder.javaType;
+        this.deprecated = builder.deprecated;
+    }
+
+    @Override
+    public String getId() {
+        return CatalogUtils.getVersionedId(getSymbolicName(), getVersion());
     }
 
     @Override
@@ -155,8 +171,8 @@ public class BasicCatalogItemMemento extends AbstractMemento implements CatalogI
     }
 
     @Override
-    public String getRegisteredTypeName() {
-        return registeredTypeName;
+    public String getSymbolicName() {
+        return symbolicName;
     }
 
     @Override
@@ -166,7 +182,11 @@ public class BasicCatalogItemMemento extends AbstractMemento implements CatalogI
 
     @Override
     public String getVersion() {
-        return version;
+        if (version != null) {
+            return version;
+        } else {
+            return BasicBrooklynCatalog.NO_VERSION;
+        }
     }
 
     @Override
@@ -180,7 +200,7 @@ public class BasicCatalogItemMemento extends AbstractMemento implements CatalogI
     }
 
     @Override
-    public CatalogItem.CatalogItemLibraries getLibraries() {
+    public Collection<CatalogItem.CatalogBundle> getLibraries() {
         return libraries;
     }
 
@@ -200,6 +220,11 @@ public class BasicCatalogItemMemento extends AbstractMemento implements CatalogI
     }
 
     @Override
+    public boolean isDeprecated() {
+        return deprecated;
+    }
+
+    @Override
     protected void setCustomFields(Map<String, Object> fields) {
         if (!fields.isEmpty()) {
             throw new UnsupportedOperationException("Cannot set custom fields on " + this + ". " +
@@ -216,7 +241,7 @@ public class BasicCatalogItemMemento extends AbstractMemento implements CatalogI
     protected Objects.ToStringHelper newVerboseStringHelper() {
         return super.newVerboseStringHelper()
                 .add("description", getDescription())
-                .add("registeredTypeName", getRegisteredTypeName())
+                .add("symbolicName", getSymbolicName())
                 .add("iconUrl", getIconUrl())
                 .add("version", getVersion())
                 .add("planYaml", getPlanYaml())
@@ -224,7 +249,8 @@ public class BasicCatalogItemMemento extends AbstractMemento implements CatalogI
                 .add("catalogItemJavaType", getCatalogItemJavaType())
                 .add("catalogItemType", getCatalogItemType())
                 .add("javaType", getJavaType())
-                .add("specType", getSpecType());
+                .add("specType", getSpecType())
+                .add("deprecated", isDeprecated());
     }
 
 }

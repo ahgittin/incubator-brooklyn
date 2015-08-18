@@ -18,8 +18,8 @@
  */
 package brooklyn.entity.rebind;
 
-import static brooklyn.test.EntityTestUtils.assertAttributeEquals;
-import static brooklyn.test.EntityTestUtils.assertConfigEquals;
+import static org.apache.brooklyn.test.EntityTestUtils.assertAttributeEquals;
+import static org.apache.brooklyn.test.EntityTestUtils.assertConfigEquals;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
@@ -33,45 +33,53 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
 
+import org.apache.brooklyn.api.entity.Application;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Group;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.entity.proxying.ImplementedBy;
+import org.apache.brooklyn.api.entity.rebind.RebindContext;
+import org.apache.brooklyn.api.entity.rebind.RebindSupport;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.event.SensorEventListener;
+import org.apache.brooklyn.api.event.AttributeSensor.SensorPersistenceMode;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.management.ha.ManagementNodeState;
+import org.apache.brooklyn.api.mementos.BrooklynMementoManifest;
+import org.apache.brooklyn.api.mementos.EntityMemento;
+import org.apache.brooklyn.core.management.internal.LocalManagementContext;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+import org.apache.brooklyn.test.entity.TestApplication;
+import org.apache.brooklyn.test.entity.TestEntity;
+import org.apache.brooklyn.test.entity.TestEntityImpl;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Application;
-import brooklyn.entity.Entity;
-import brooklyn.entity.Group;
 import brooklyn.entity.basic.AbstractEntity;
 import brooklyn.entity.basic.AbstractGroupImpl;
 import brooklyn.entity.basic.BasicGroup;
 import brooklyn.entity.basic.Entities;
-import brooklyn.entity.basic.EntityLocal;
 import brooklyn.entity.basic.EntityPredicates;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.entity.proxying.ImplementedBy;
 import brooklyn.entity.trait.Resizable;
 import brooklyn.entity.trait.Startable;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.SensorEvent;
-import brooklyn.event.SensorEventListener;
 import brooklyn.event.basic.BasicAttributeSensor;
 import brooklyn.event.basic.BasicConfigKey;
 import brooklyn.event.basic.BasicSensorEvent;
 import brooklyn.event.basic.DependentConfiguration;
 import brooklyn.event.basic.Sensors;
-import brooklyn.location.Location;
-import brooklyn.location.basic.LocationConfigTest.MyLocation;
-import brooklyn.management.ha.ManagementNodeState;
-import brooklyn.management.internal.LocalManagementContext;
-import brooklyn.mementos.EntityMemento;
+
+import org.apache.brooklyn.location.basic.LocationConfigTest.MyLocation;
+
 import brooklyn.test.Asserts;
-import brooklyn.test.entity.TestApplication;
-import brooklyn.test.entity.TestEntity;
-import brooklyn.test.entity.TestEntityImpl;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.collections.MutableSet;
 import brooklyn.util.exceptions.RuntimeInterruptedException;
-import brooklyn.util.flags.SetFromFlag;
 import brooklyn.util.time.Durations;
 
 import com.google.common.base.Objects;
@@ -179,7 +187,30 @@ public class RebindEntityTest extends RebindTestFixtureWithApp {
         MyEntity newE = (MyEntity) Iterables.find(newApp.getChildren(), Predicates.instanceOf(MyEntity.class));
         assertEquals(newE.getAttribute(myCustomAttribute), "myval");
     }
-    
+
+    @Test
+    public void testRestoresEntityLocationAndCleansUp() throws Exception {
+        MyLocation loc = origManagementContext.getLocationManager().createLocation(LocationSpec.create(MyLocation.class));
+        origApp.createAndManageChild(EntitySpec.create(MyEntity.class).location(loc));
+        
+        newApp = rebind();
+        MyEntity newE = (MyEntity) Iterables.find(newApp.getChildren(), Predicates.instanceOf(MyEntity.class));
+        
+        Assert.assertEquals(newE.getLocations().size(), 1); 
+        Location loc2 = Iterables.getOnlyElement(newE.getLocations());
+        Assert.assertEquals(loc, loc2);
+        Assert.assertFalse(loc==loc2);
+        
+        newApp.stop();
+        // TODO how to trigger automatic unmanagement? see notes in RebindLocalhostLocationTest
+        newManagementContext.getLocationManager().unmanage(loc2);
+        switchOriginalToNewManagementContext();
+        RebindTestUtils.waitForPersisted(origManagementContext);
+        
+        BrooklynMementoManifest mf = loadMementoManifest();
+        Assert.assertTrue(mf.getLocationIdToType().isEmpty(), "Expected no locations; had "+mf.getLocationIdToType());
+    }
+
     @Test
     public void testRestoresEntityIdAndDisplayName() throws Exception {
         MyEntity origE = origApp.createAndManageChild(EntitySpec.create(MyEntity.class)
@@ -247,7 +278,7 @@ public class RebindEntityTest extends RebindTestFixtureWithApp {
         reffer.myEntity = origE;
         origApp.setConfig(TestEntity.CONF_OBJECT, reffer);
 
-        newApp = rebind(false);
+        newApp = rebind();
         MyEntity newE = (MyEntity) Iterables.find(newApp.getChildren(), Predicates.instanceOf(MyEntity.class));
         ReffingEntity reffer2 = (ReffingEntity)newApp.getConfig(TestEntity.CONF_OBJECT);
         
@@ -267,7 +298,7 @@ public class RebindEntityTest extends RebindTestFixtureWithApp {
         reffer.resizable = origE;
         origApp.setConfig(TestEntity.CONF_OBJECT, reffer);
 
-        newApp = rebind(false);
+        newApp = rebind();
         MyEntityWithMultipleInterfaces newE = (MyEntityWithMultipleInterfaces) Iterables.find(newApp.getChildren(), Predicates.instanceOf(MyEntityWithMultipleInterfaces.class));
         ReffingEntity newReffer = (ReffingEntity)newApp.getConfig(TestEntity.CONF_OBJECT);
         
@@ -281,7 +312,7 @@ public class RebindEntityTest extends RebindTestFixtureWithApp {
         origE.tags().addTag("foo");
         origE.tags().addTag(origApp);
 
-        newApp = rebind(false);
+        newApp = rebind();
         MyEntity newE = Iterables.getOnlyElement( Entities.descendants(newApp, MyEntity.class) );
 
         assertTrue(newE.tags().containsTag("foo"), "tags are "+newE.tags().getTags());
@@ -390,7 +421,10 @@ public class RebindEntityTest extends RebindTestFixtureWithApp {
         Thread thread = new Thread() {
             public void run() {
                 try {
-                    RebindTestUtils.rebind(newManagementContext, mementoDir, getClass().getClassLoader());
+                    RebindTestUtils.rebind(RebindOptions.create()
+                            .newManagementContext(newManagementContext)
+                            .mementoDir(mementoDir)
+                            .classLoader(RebindEntityTest.class.getClassLoader()));
                 } catch (Exception e) {
                     throw Throwables.propagate(e);
                 }
@@ -571,6 +605,25 @@ public class RebindEntityTest extends RebindTestFixtureWithApp {
         
         assertEquals(newApp.getAttribute(MY_DYNAMIC_SENSOR), "myval");
         assertEquals(newApp.getEntityType().getSensor(sensorName).getDescription(), sensorDescription);
+    }
+
+    @Test
+    public void testRebindDoesNotPersistTransientAttribute() throws Exception {
+        final String sensorName = "test.mydynamicsensor";
+        final AttributeSensor<Object> MY_DYNAMIC_SENSOR = Sensors.builder(Object.class, sensorName)
+                .persistence(SensorPersistenceMode.NONE)
+                .build();
+        
+        // Anonymous inner class: we will not be able to rebind that.
+        @SuppressWarnings("serial")
+        Semaphore unrebindableObject = new Semaphore(1) {
+        };
+        
+        origApp.setAttribute(MY_DYNAMIC_SENSOR, unrebindableObject);
+        assertEquals(origApp.getAttribute(MY_DYNAMIC_SENSOR), unrebindableObject);
+
+        newApp = rebind();
+        assertNull(newApp.getAttribute(MY_DYNAMIC_SENSOR));
     }
 
     @Test

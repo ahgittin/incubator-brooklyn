@@ -25,27 +25,28 @@ import static org.testng.Assert.assertTrue;
 import java.io.File;
 import java.io.IOException;
 import java.io.StringReader;
-import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.entity.proxying.ImplementedBy;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.core.management.internal.LocalManagementContext;
+import org.apache.brooklyn.core.util.BrooklynNetworkUtils;
+import org.apache.brooklyn.test.entity.TestApplication;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.entity.proxying.ImplementedBy;
 import brooklyn.entity.trait.Startable;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.LocalhostMachineProvisioningLocation;
-import brooklyn.location.basic.SshMachineLocation;
-import brooklyn.management.internal.LocalManagementContext;
-import brooklyn.test.entity.TestApplication;
-import brooklyn.util.BrooklynNetworkUtils;
+
+import org.apache.brooklyn.location.basic.LocalhostMachineProvisioningLocation;
+import org.apache.brooklyn.location.basic.SshMachineLocation;
+
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.net.Networking;
 import brooklyn.util.os.Os;
 import brooklyn.util.stream.KnownSizeInputStream;
 import brooklyn.util.stream.Streams;

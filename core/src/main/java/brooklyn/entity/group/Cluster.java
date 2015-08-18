@@ -18,11 +18,12 @@
  */
 package brooklyn.entity.group;
 
-import brooklyn.entity.Group;
+import org.apache.brooklyn.api.entity.Group;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+
 import brooklyn.entity.trait.Resizable;
 import brooklyn.entity.trait.Startable;
 import brooklyn.event.basic.BasicConfigKey;
-import brooklyn.util.flags.SetFromFlag;
 
 /**
  * Intended to represent a group of homogeneous entities in a single location.

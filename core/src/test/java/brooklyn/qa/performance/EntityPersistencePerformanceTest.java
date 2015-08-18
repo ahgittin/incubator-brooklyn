@@ -22,16 +22,18 @@ import java.util.List;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.api.policy.PolicySpec;
+import org.apache.brooklyn.test.PerformanceTestUtils;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.testng.annotations.Test;
 
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.rebind.RebindTestFixtureWithApp;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.SimulatedLocation;
-import brooklyn.policy.Policy;
-import brooklyn.policy.PolicySpec;
-import brooklyn.test.PerformanceTestUtils;
-import brooklyn.test.entity.TestEntity;
+
+import org.apache.brooklyn.location.basic.SimulatedLocation;
+
 import brooklyn.test.policy.TestPolicy;
 import brooklyn.util.repeat.Repeater;
 import brooklyn.util.time.Duration;

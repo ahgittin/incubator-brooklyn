@@ -18,10 +18,11 @@
  */
 package brooklyn.entity.basic;
 
+import org.apache.brooklyn.api.entity.proxying.ImplementedBy;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.proxying.ImplementedBy;
 import brooklyn.event.basic.BasicConfigKey;
-import brooklyn.util.flags.SetFromFlag;
 
 @ImplementedBy(BasicGroupImpl.class)
 public interface BasicGroup extends AbstractGroup {

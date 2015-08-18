@@ -20,26 +20,24 @@ package brooklyn.config;
 
 import static brooklyn.entity.basic.ConfigKeys.newStringConfigKey;
 
-import brooklyn.catalog.CatalogLoadMode;
-import io.brooklyn.camp.CampPlatform;
-
 import java.io.File;
 import java.net.URI;
 import java.util.Map;
 
-import org.apache.commons.io.FileUtils;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.camp.CampPlatform;
+import org.apache.brooklyn.core.catalog.internal.CatalogInitialization;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.entity.basic.ConfigKeys;
-import brooklyn.management.ManagementContext;
-import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.guava.Maybe;
 import brooklyn.util.os.Os;
 
 /** Config keys for the brooklyn server */
 public class BrooklynServerConfig {
 
+    @SuppressWarnings("unused")
     private static final Logger log = LoggerFactory.getLogger(BrooklynServerConfig.class);
 
     /**
@@ -54,80 +52,96 @@ public class BrooklynServerConfig {
     public static final ConfigKey<String> BROOKLYN_DATA_DIR = newStringConfigKey(
             "brooklyn.datadir", "Directory for writing all brooklyn data");
 
-    public static final String DEFAULT_PERSISTENCE_CONTAINER_NAME = "brooklyn-persisted-state";
-    /** on file system, the 'data' subdir is used so that there is an obvious place to put backup dirs */ 
-    public static final String DEFAULT_PERSISTENCE_DIR_FOR_FILESYSTEM = Os.mergePaths(DEFAULT_PERSISTENCE_CONTAINER_NAME, "data");
-    
     /**
      * Provided for setting; consumers should query the management context persistence subsystem
-     * for the actual target, or use {@link #resolvePersistencePath(String, StringConfigMap, String)}
+     * for the actual target, or use {@link BrooklynServerPaths#newMainPersistencePathResolver(ManagementContext)}
      * if trying to resolve the value
      */
     public static final ConfigKey<String> PERSISTENCE_DIR = newStringConfigKey(
         "brooklyn.persistence.dir", 
-        "Directory or container name for writing brooklyn persisted state");
+        "Directory or container name for writing persisted state");
 
     public static final ConfigKey<String> PERSISTENCE_LOCATION_SPEC = newStringConfigKey(
         "brooklyn.persistence.location.spec", 
-        "Optional location spec string for an object store (e.g. jclouds:swift:URL) where persisted state should be kept;"
+        "Optional location spec string for an object store (e.g. jclouds:swift:URL) where persisted state should be kept; "
         + "if blank or not supplied, the file system is used"); 
 
+    public static final ConfigKey<String> PERSISTENCE_BACKUPS_DIR = newStringConfigKey(
+        "brooklyn.persistence.backups.dir", 
+        "Directory or container name for writing backups of persisted state; "
+        + "defaults to 'backups' inside the default persistence directory");
+    
+    public static final ConfigKey<String> PERSISTENCE_BACKUPS_LOCATION_SPEC = newStringConfigKey(
+        "brooklyn.persistence.backups.location.spec", 
+        "Location spec string for an object store (e.g. jclouds:swift:URL) where backups of persisted state should be kept; "
+        + "defaults to the local file system");
+    
+    public static final ConfigKey<Boolean> PERSISTENCE_BACKUPS_REQUIRED_ON_PROMOTION =
+        ConfigKeys.newBooleanConfigKey("brooklyn.persistence.backups.required.promotion",
+            "Whether a backup should be made of the persisted state from the persistence location to the backup location on node promotion, "
+            + "before any writes from this node", true);
+    
+    public static final ConfigKey<Boolean> PERSISTENCE_BACKUPS_REQUIRED_ON_DEMOTION =
+        ConfigKeys.newBooleanConfigKey("brooklyn.persistence.backups.required.promotion",
+            "Whether a backup of in-memory state should be made to the backup persistence location on node demotion, "
+            + "in case other nodes might write conflicting state", true);
+
+    /** @deprecated since 0.7.0, use {@link #PERSISTENCE_BACKUPS_ON_PROMOTION} and {@link #PERSISTENCE_BACKUPS_ON_DEMOTION},
+     * which allow using a different target location and are supported on more environments (and now default to true) */
+    @Deprecated
     public static final ConfigKey<Boolean> PERSISTENCE_BACKUPS_REQUIRED =
         ConfigKeys.newBooleanConfigKey("brooklyn.persistence.backups.required",
             "Whether a backup should always be made of the persistence directory; "
             + "if true, it will fail if this operation is not permitted (e.g. jclouds-based cloud object stores); "
             + "if false, the persistence store will be overwritten with changes (but files not removed if they are unreadable); "
-            + "if null or not set, the legacy beahviour of creating backups where possible (e.g. file system) is currently used, "
-            + "but this may be changed in future versions");
+            + "if null or not set, the legacy beahviour of creating backups where possible (e.g. file system) is currently used; "
+            + "this key is DEPRECATED in favor of promotion and demotion specific flags now defaulting to true");
 
     public static final ConfigKey<String> BROOKLYN_CATALOG_URL = ConfigKeys.newStringConfigKey("brooklyn.catalog.url",
-        "The URL of a catalog.xml descriptor; absent for default (~/.brooklyn/catalog.xml), " +
-        "or empty for no URL (use default scanner)",
-        new File(Os.fromHome(".brooklyn/catalog.xml")).toURI().toString());
+        "The URL of a custom catalog.bom or catalog.xml descriptor to load");
 
-    public static final ConfigKey<CatalogLoadMode> CATALOG_LOAD_MODE = ConfigKeys.newConfigKey(CatalogLoadMode.class,
+    /** @deprecated since 0.7.0 replaced by {@link CatalogInitialization}; also note, default removed 
+     * (it was overridden anyway, and in almost all cases the new behaviour is still the default behaviour) */
+    @Deprecated
+    public static final ConfigKey<org.apache.brooklyn.core.catalog.CatalogLoadMode> CATALOG_LOAD_MODE = ConfigKeys.newConfigKey(org.apache.brooklyn.core.catalog.CatalogLoadMode.class,
             "brooklyn.catalog.mode",
-            "The mode the management context should use to load the catalog when first starting",
-            CatalogLoadMode.LOAD_BROOKLYN_CATALOG_URL);
+            "The mode the management context should use to load the catalog when first starting");
 
+    /** string used in places where the management node ID is needed to resolve a path */
+    public static final String MANAGEMENT_NODE_ID_PROPERTY = "brooklyn.mgmt.node.id";
+    
     public static final ConfigKey<Boolean> USE_OSGI = ConfigKeys.newBooleanConfigKey("brooklyn.osgi.enabled",
         "Whether OSGi is enabled, defaulting to true", true);
+    public static final ConfigKey<String> OSGI_CACHE_DIR = ConfigKeys.newStringConfigKey("brooklyn.osgi.cache.dir",
+        "Directory to use for OSGi cache, potentially including Freemarker template variables "
+        + "${"+MGMT_BASE_DIR.getName()+"} (which is the default for relative paths), "
+        + "${"+Os.TmpDirFinder.BROOKLYN_OS_TMPDIR_PROPERTY+"} if it should be in the tmp dir space,  "
+        + "and ${"+MANAGEMENT_NODE_ID_PROPERTY+"} to include the management node ID (recommended if running multiple OSGi paths)",
+        "osgi/cache/${"+MANAGEMENT_NODE_ID_PROPERTY+"}/");
+    public static final ConfigKey<Boolean> OSGI_CACHE_CLEAN = ConfigKeys.newBooleanConfigKey("brooklyn.osgi.cache.clean",
+        "Whether to delete the OSGi directory before and after use; if unset, it will delete if the node ID forms part of the cache dir path (which by default it does) to avoid file leaks");
 
     public static final ConfigKey<CampPlatform> CAMP_PLATFORM = ConfigKeys.newConfigKey(CampPlatform.class, "brooklyn.camp.platform",
         "Config set at brooklyn management platform to find the CampPlatform instance (bi-directional)");
 
-
+    /** @see BrooklynServerPaths#getMgmtBaseDir(ManagementContext) */
     public static String getMgmtBaseDir(ManagementContext mgmt) {
-        return getMgmtBaseDir(mgmt.getConfig());
+        return BrooklynServerPaths.getMgmtBaseDir(mgmt);
     }
-    
+    /** @see BrooklynServerPaths#getMgmtBaseDir(ManagementContext) */
     public static String getMgmtBaseDir(StringConfigMap brooklynProperties) {
-        String base = (String) brooklynProperties.getConfigRaw(MGMT_BASE_DIR, true).orNull();
-        if (base==null) {
-            base = brooklynProperties.getConfig(BROOKLYN_DATA_DIR);
-            if (base!=null)
-                log.warn("Using deprecated "+BROOKLYN_DATA_DIR.getName()+": use "+MGMT_BASE_DIR.getName()+" instead; value: "+base);
-        }
-        if (base==null) base = brooklynProperties.getConfig(MGMT_BASE_DIR);
-        return Os.tidyPath(base)+File.separator;
+        return BrooklynServerPaths.getMgmtBaseDir(brooklynProperties);
     }
+    /** @see BrooklynServerPaths#getMgmtBaseDir(ManagementContext) */
     public static String getMgmtBaseDir(Map<String,?> brooklynProperties) {
-        String base = (String) brooklynProperties.get(MGMT_BASE_DIR.getName());
-        if (base==null) base = (String) brooklynProperties.get(BROOKLYN_DATA_DIR.getName());
-        if (base==null) base = MGMT_BASE_DIR.getDefaultValue();
-        return Os.tidyPath(base)+File.separator;
+        return BrooklynServerPaths.getMgmtBaseDir(brooklynProperties);
     }
     
-    protected static String resolveAgainstBaseDir(StringConfigMap brooklynProperties, String path) {
-        if (!Os.isAbsolutish(path)) path = Os.mergePaths(getMgmtBaseDir(brooklynProperties), path);
-        return Os.tidyPath(path);
-    }
-    
-    /** @deprecated since 0.7.0 use {@link #resolvePersistencePath(String, StringConfigMap, String)} */
+    /** @deprecated since 0.7.0 use {@link BrooklynServerPaths#newMainPersistencePathResolver(ManagementContext)} */
     public static String getPersistenceDir(ManagementContext mgmt) {
         return getPersistenceDir(mgmt.getConfig());
     }
-    /** @deprecated since 0.7.0 use {@link #resolvePersistencePath(String, StringConfigMap, String)} */ 
+    /** @deprecated since 0.7.0 use {@link BrooklynServerPaths#newMainPersistencePathResolver(ManagementContext)} */ 
     public static String getPersistenceDir(StringConfigMap brooklynProperties) {
         return resolvePersistencePath(null, brooklynProperties, null);
     }
@@ -145,34 +159,15 @@ public class BrooklynServerConfig {
      *     will return a full file system path, relative to the brooklyn.base.dir if the
      *     configured brooklyn.persistence.dir is not absolute
      * @return The container name or full path for where persist state should be kept
-     */
+     * @deprecated since 0.7.0 use {@link BrooklynServerPaths#newMainPersistencePathResolver(ManagementContext)} */
     public static String resolvePersistencePath(String optionalSuppliedValue, StringConfigMap brooklynProperties, String optionalObjectStoreLocationSpec) {
-        String path = optionalSuppliedValue;
-        if (path==null) path = brooklynProperties.getConfig(PERSISTENCE_DIR);
-        if (optionalObjectStoreLocationSpec==null) {
-            // file system
-            if (path==null) path=DEFAULT_PERSISTENCE_DIR_FOR_FILESYSTEM;
-            return resolveAgainstBaseDir(brooklynProperties, path);
-        } else {
-            // obj store
-            if (path==null) path=DEFAULT_PERSISTENCE_CONTAINER_NAME;
-            return path;
-        }
+        return BrooklynServerPaths.newMainPersistencePathResolver(brooklynProperties).location(optionalObjectStoreLocationSpec).dir(optionalSuppliedValue).resolve();
     }
-
+    
+    
+    /** @deprecated since 0.7.0 use {@link BrooklynServerPaths#getBrooklynWebTmpDir(ManagementContext)} */
     public static File getBrooklynWebTmpDir(ManagementContext mgmt) {
-        String brooklynMgmtBaseDir = getMgmtBaseDir(mgmt);
-        File webappTempDir = new File(Os.mergePaths(brooklynMgmtBaseDir, "planes", mgmt.getManagementPlaneId(), mgmt.getManagementNodeId(), "jetty"));
-        try {
-            FileUtils.forceMkdir(webappTempDir);
-            Os.deleteOnExitRecursivelyAndEmptyParentsUpTo(webappTempDir, new File(brooklynMgmtBaseDir)); 
-            return webappTempDir;
-        } catch (Exception e) {
-            Exceptions.propagateIfFatal(e);
-            IllegalStateException e2 = new IllegalStateException("Cannot create working directory "+webappTempDir+" for embedded jetty server: "+e, e);
-            log.warn(e2.getMessage()+" (rethrowing)");
-            throw e2;
-        }
+        return BrooklynServerPaths.getBrooklynWebTmpDir(mgmt);
     }
 
     /**

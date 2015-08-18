@@ -18,7 +18,7 @@
  */
 package brooklyn.camp.brooklyn.api;
 
-import brooklyn.management.ManagementContext;
+import org.apache.brooklyn.api.management.ManagementContext;
 
 public interface HasBrooklynManagementContext {
 

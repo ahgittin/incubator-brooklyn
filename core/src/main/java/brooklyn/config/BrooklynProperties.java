@@ -33,17 +33,15 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Properties;
 
-import javax.annotation.Nullable;
-
+import org.apache.brooklyn.core.util.ResourceUtils;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.ConfigKey.HasConfigKey;
 import brooklyn.event.basic.BasicConfigKey;
-import brooklyn.util.ResourceUtils;
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.config.ConfigBag;
-import brooklyn.util.flags.TypeCoercions;
 import brooklyn.util.guava.Maybe;
 import brooklyn.util.os.Os;
 import brooklyn.util.text.StringFunctions;
@@ -51,7 +49,6 @@ import brooklyn.util.text.Strings;
 
 import com.google.common.annotations.Beta;
 import com.google.common.base.CharMatcher;
-import com.google.common.base.Function;
 import com.google.common.base.Objects;
 import com.google.common.base.Predicate;
 import com.google.common.base.Throwables;
@@ -247,6 +244,7 @@ public class BrooklynProperties extends LinkedHashMap implements StringConfigMap
         return this;
     }
 
+    @SuppressWarnings("unchecked")
     public BrooklynProperties addFrom(Map map) {
         putAll(Maps.transformValues(map, StringFunctions.trim()));
         return this;
@@ -433,6 +431,7 @@ public class BrooklynProperties extends LinkedHashMap implements StringConfigMap
 
     @Override
     public <T> T getConfig(ConfigKey<T> key, T defaultValue) {
+        // TODO does not support MapConfigKey etc where entries use subkey notation; for now, access using submap
         if (!containsKey(key.getName())) {
             if (defaultValue!=null) return defaultValue;
             return key.getDefaultValue();

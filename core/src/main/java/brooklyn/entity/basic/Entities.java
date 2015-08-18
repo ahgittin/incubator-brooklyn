@@ -22,6 +22,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Writer;
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -33,64 +34,70 @@ import java.util.Set;
 import java.util.Stack;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.brooklyn.api.entity.Application;
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Group;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.drivers.EntityDriver;
+import org.apache.brooklyn.api.entity.drivers.downloads.DownloadResolver;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.management.ExecutionContext;
+import org.apache.brooklyn.api.management.LocationManager;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.api.management.TaskAdaptable;
+import org.apache.brooklyn.api.management.TaskFactory;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.core.management.internal.EffectorUtils;
+import org.apache.brooklyn.core.management.internal.EntityManagerInternal;
+import org.apache.brooklyn.core.management.internal.LocalManagementContext;
+import org.apache.brooklyn.core.management.internal.ManagementContextInternal;
+import org.apache.brooklyn.core.management.internal.NonDeploymentManagementContext;
+import org.apache.brooklyn.core.util.ResourceUtils;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.flags.FlagUtils;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.core.util.task.ParallelTask;
+import org.apache.brooklyn.core.util.task.TaskTags;
+import org.apache.brooklyn.core.util.task.Tasks;
+import org.apache.brooklyn.core.util.task.system.ProcessTaskWrapper;
+import org.apache.brooklyn.core.util.task.system.SystemTasks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.brooklyn.basic.BrooklynObjectInternal;
 import brooklyn.config.BrooklynProperties;
 import brooklyn.config.ConfigKey;
 import brooklyn.config.ConfigKey.HasConfigKey;
-import brooklyn.enricher.basic.AbstractEnricher;
-import brooklyn.entity.Application;
-import brooklyn.entity.Effector;
-import brooklyn.entity.Entity;
-import brooklyn.entity.Group;
-import brooklyn.entity.drivers.EntityDriver;
-import brooklyn.entity.drivers.downloads.DownloadResolver;
 import brooklyn.entity.effector.Effectors;
+import brooklyn.entity.proxying.EntityProxyImpl;
 import brooklyn.entity.trait.Startable;
 import brooklyn.entity.trait.StartableMethods;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
 import brooklyn.event.basic.DependentConfiguration;
-import brooklyn.location.Location;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.LocationInternal;
-import brooklyn.location.basic.Locations;
-import brooklyn.management.ExecutionContext;
-import brooklyn.management.LocationManager;
-import brooklyn.management.ManagementContext;
-import brooklyn.management.Task;
-import brooklyn.management.TaskAdaptable;
-import brooklyn.management.TaskFactory;
-import brooklyn.management.internal.EffectorUtils;
-import brooklyn.management.internal.EntityManagerInternal;
-import brooklyn.management.internal.LocalManagementContext;
-import brooklyn.management.internal.ManagementContextInternal;
-import brooklyn.management.internal.NonDeploymentManagementContext;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.Policy;
-import brooklyn.policy.basic.AbstractPolicy;
-import brooklyn.util.ResourceUtils;
+
+import org.apache.brooklyn.location.basic.LocationInternal;
+import org.apache.brooklyn.location.basic.Locations;
+
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.config.ConfigBag;
 import brooklyn.util.exceptions.Exceptions;
-import brooklyn.util.flags.FlagUtils;
 import brooklyn.util.guava.Maybe;
 import brooklyn.util.repeat.Repeater;
 import brooklyn.util.stream.Streams;
-import brooklyn.util.task.DynamicTasks;
-import brooklyn.util.task.ParallelTask;
-import brooklyn.util.task.TaskTags;
-import brooklyn.util.task.Tasks;
-import brooklyn.util.task.system.ProcessTaskWrapper;
-import brooklyn.util.task.system.SystemTasks;
 import brooklyn.util.time.Duration;
 
 import com.google.common.annotations.Beta;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -103,6 +110,11 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.reflect.TypeToken;
+import com.google.common.util.concurrent.Atomics;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 
 /**
  * Convenience methods for working with entities.
@@ -117,7 +129,10 @@ public class Entities {
     /**
      * Names that, if they appear anywhere in an attribute/config/field indicates that it
      * may be private, so should not be logged etc.
+     * 
+     * @deprecated since 0.7; instead use {@link Sanitizer#SECRET_NAMES}
      */
+    @Deprecated
     public static final List<String> SECRET_NAMES = ImmutableList.of(
             "password",
             "passwd",
@@ -240,12 +255,12 @@ public class Entities {
         return invokeEffector(callingEntity, entitiesToCall, effector, Collections.<String,Object>emptyMap());
     }
 
+    /**
+     * @deprecated since 0.7; instead use {@link Sanitizer#IS_SECRET_PREDICATE.apply(Object)}
+     */
+    @Deprecated
     public static boolean isSecret(String name) {
-        String lowerName = name.toLowerCase();
-        for (String secretName : SECRET_NAMES) {
-            if (lowerName.contains(secretName)) return true;
-        }
-        return false;
+        return Sanitizer.IS_SECRET_PREDICATE.apply(name);
     }
 
     public static boolean isTrivial(Object v) {
@@ -260,17 +275,20 @@ public class Entities {
                 (v instanceof CharSequence&& ((CharSequence)v).length() == 0);
     }
 
+    /**
+     * @deprecated since 0.7; instead use {@link Sanitizer#sanitize(ConfigBag)}
+     */
+    @Deprecated
     public static Map<String,Object> sanitize(ConfigBag input) {
-        return sanitize(input.getAllConfig());
+        return Sanitizer.sanitize(input );
     }
 
+    /**
+     * @deprecated since 0.7; instead use {@link Sanitizer#sanitize(Map)}
+     */
+    @Deprecated
     public static <K> Map<K,Object> sanitize(Map<K,?> input) {
-        Map<K,Object> result = Maps.newLinkedHashMap();
-        for (Map.Entry<K,?> e: input.entrySet()) {
-            if (isSecret(""+e.getKey())) result.put(e.getKey(), "xxxxxxxx");
-            else result.put(e.getKey(), e.getValue());
-        }
-        return result;
+        return Sanitizer.sanitize(input);
     }
 
     public static void dumpInfo(Iterable<? extends Entity> entities) {
@@ -307,7 +325,7 @@ public class Entities {
             ConfigKey<?> realKey = e.getEntityType().getConfigKey(it.getName());
             if (realKey!=null) it = realKey;
 
-            Maybe<Object> mv = ((EntityInternal)e).getConfigMap().getConfigRaw(it, false);
+            Maybe<Object> mv = ((EntityInternal)e).config().getLocalRaw(it);
             if (!isTrivial(mv)) {
                 Object v = mv.get();
                 out.append(currentIndentation+tab+tab+it.getName());
@@ -392,7 +410,7 @@ public class Entities {
     public static void dumpInfo(Location loc, Writer out, String currentIndentation, String tab) throws IOException {
         out.append(currentIndentation+loc.toString()+"\n");
 
-        for (Object entryO : ((LocationInternal)loc).getAllConfigBag().getAllConfig().entrySet()) {
+        for (Object entryO : ((LocationInternal)loc).config().getBag().getAllConfig().entrySet()) {
             Map.Entry entry = (Map.Entry)entryO;
             Object keyO = entry.getKey();
             String key =
@@ -447,7 +465,7 @@ public class Entities {
         out.append(currentIndentation+enr.toString()+"\n");
 
         for (ConfigKey<?> key : sortConfigKeys(enr.getEnricherType().getConfigKeys())) {
-            Maybe<Object> val = ((AbstractEnricher)enr).getConfigMap().getConfigRaw(key, true);
+            Maybe<Object> val = ((BrooklynObjectInternal)enr).config().getRaw(key);
             if (!isTrivial(val)) {
                 out.append(currentIndentation+tab+tab+key);
                 out.append(" = ");
@@ -478,7 +496,7 @@ public class Entities {
         out.append(currentIndentation+pol.toString()+"\n");
 
         for (ConfigKey<?> key : sortConfigKeys(pol.getPolicyType().getConfigKeys())) {
-            Maybe<Object> val = ((AbstractPolicy)pol).getConfigMap().getConfigRaw(key, true);
+            Maybe<Object> val = ((BrooklynObjectInternal)pol).config().getRaw(key);
             if (!isTrivial(val)) {
                 out.append(currentIndentation+tab+tab+key);
                 out.append(" = ");
@@ -585,7 +603,7 @@ public class Entities {
      *
      * @see #descendants(Entity, Predicate, boolean)
      */
-    public static Iterable<Entity> descendants(Entity root, Predicate<Entity> matching) {
+    public static Iterable<Entity> descendants(Entity root, Predicate<? super Entity> matching) {
         return descendants(root, matching, true);
     }
 
@@ -713,35 +731,54 @@ public class Entities {
 
     /**
      * Stops, destroys, and unmanages all apps in the given context, and then terminates the management context.
+     * 
+     * Apps will be stopped+destroyed+unmanaged concurrently, waiting for all to complete.
      */
-    public static void destroyAll(ManagementContext mgmt) {
-        Exception error = null;
+    public static void destroyAll(final ManagementContext mgmt) {
         if (mgmt instanceof NonDeploymentManagementContext) {
             // log here because it is easy for tests to destroyAll(app.getMgmtContext())
             // which will *not* destroy the mgmt context if the app has been stopped!
             log.warn("Entities.destroyAll invoked on non-deployment "+mgmt+" - not likely to have much effect! " +
-                    "(This usually means the mgmt context has been taken from entity has been destroyed. " +
+                    "(This usually means the mgmt context has been taken from an entity that has been destroyed. " +
                     "To destroy other things on the management context ensure you keep a handle to the context " +
                     "before the entity is destroyed, such as by creating the management context first.)");
         }
         if (!mgmt.isRunning()) return;
-        log.debug("destroying all apps in "+mgmt+": "+mgmt.getApplications());
-        for (Application app: mgmt.getApplications()) {
-            log.debug("destroying app "+app+" (managed? "+isManaged(app)+"; mgmt is "+mgmt+")");
-            try {
-                destroy(app);
-                log.debug("destroyed app "+app+"; mgmt now "+mgmt);
-            } catch (Exception e) {
-                log.warn("problems destroying app "+app+" (mgmt now "+mgmt+", will rethrow at least one exception): "+e);
-                if (error==null) error = e;
+        
+        ListeningExecutorService executor = MoreExecutors.listeningDecorator(Executors.newCachedThreadPool());
+        List<ListenableFuture<?>> futures = Lists.newArrayList();
+        final AtomicReference<Exception> error = Atomics.newReference();
+        try {
+            log.debug("destroying all apps in "+mgmt+": "+mgmt.getApplications());
+            for (final Application app: mgmt.getApplications()) {
+                futures.add(executor.submit(new Runnable() {
+                    public void run() {
+                        log.debug("destroying app "+app+" (managed? "+isManaged(app)+"; mgmt is "+mgmt+")");
+                        try {
+                            destroy(app);
+                            log.debug("destroyed app "+app+"; mgmt now "+mgmt);
+                        } catch (Exception e) {
+                            log.warn("problems destroying app "+app+" (mgmt now "+mgmt+", will rethrow at least one exception): "+e);
+                            error.compareAndSet(null, e);
+                        }
+                    }}));
             }
+            Futures.allAsList(futures).get();
+            
+            for (Location loc : mgmt.getLocationManager().getLocations()) {
+                destroyCatching(loc);
+            }
+            if (mgmt instanceof ManagementContextInternal) {
+                ((ManagementContextInternal)mgmt).terminate();
+            }
+            if (error.get() != null) throw Exceptions.propagate(error.get());
+        } catch (InterruptedException e) {
+            throw Exceptions.propagate(e);
+        } catch (ExecutionException e) {
+            throw Exceptions.propagate(e);
+        } finally {
+            executor.shutdownNow();
         }
-        for (Location loc : mgmt.getLocationManager().getLocations()) {
-            destroyCatching(loc);
-        }
-        if (mgmt instanceof ManagementContextInternal)
-            ((ManagementContextInternal)mgmt).terminate();
-        if (error!=null) throw Exceptions.propagate(error);
     }
 
     /** Same as {@link #destroyAll(ManagementContext)} but catching all errors */
@@ -768,6 +805,33 @@ public class Entities {
         return ((EntityInternal)e).getManagementSupport().isReadOnly();
     }
 
+    /** Unwraps a proxy to retrieve the real item, if available.
+     * <p>
+     * Only intended for use in tests and occasional internal usage, e.g. persistence.
+     * For normal operations, callers should ensure the method is available on an interface and accessed via the proxy. */
+    @Beta @VisibleForTesting
+    public static AbstractEntity deproxy(Entity e) {
+        if (!(Proxy.isProxyClass(e.getClass()))) {
+            log.warn("Attempt to deproxy non-proxy "+e, new Throwable("Location of attempt to deproxy non-proxy "+e));
+            return (AbstractEntity) e;
+        }
+        return (AbstractEntity) ((EntityProxyImpl)Proxy.getInvocationHandler(e)).getDelegate();
+    }
+    
+    /** 
+     * Returns the proxy form (if available) of the entity. If already a proxy, returns unmodified.
+     * 
+     * If null is passed in, then null is returned.
+     * 
+     * For legacy entities (that did not use {@link EntitySpec} or YAML for creation), the
+     * proxy may not be avilable; in which case the concrete class passed in will be returned.
+     */
+    @Beta
+    @SuppressWarnings("unchecked")
+    public static <T extends Entity> T proxy(T e) {
+        return (e == null) ? null : e instanceof Proxy ? e : (T) ((AbstractEntity)e).getProxyIfAvailable();
+    }
+    
     /**
      * Brings this entity under management only if its ancestor is managed.
      * <p>
@@ -868,6 +932,10 @@ public class Entities {
 
     public static ManagementContext newManagementContext(Map<?,?> props) {
         return new LocalManagementContext( BrooklynProperties.Factory.newEmpty().addFromMap(props));
+    }
+
+    public static ManagementContext getManagementContext(Entity entity) {
+        return ((EntityInternal) entity).getManagementContext();
     }
 
     public static void unmanage(Entity entity) {
@@ -1006,7 +1074,7 @@ public class Entities {
                     .rethrowException().backoffTo(Duration.ONE_SECOND)
                     .until(new Callable<Boolean>() {
                         public Boolean call() {
-                            return entity.getAttribute(Startable.SERVICE_UP);
+                            return Boolean.TRUE.equals(entity.getAttribute(Startable.SERVICE_UP));
                         }})
                     .run()) {
                 throw new IllegalStateException("Timeout waiting for SERVICE_UP from "+entity);

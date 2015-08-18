@@ -27,17 +27,20 @@ import java.util.Map;
 
 import com.google.common.base.Strings;
 import com.google.common.net.HostAndPort;
+
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.core.util.task.system.ProcessTaskWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.entity.Entity;
 import brooklyn.entity.effector.EffectorTasks;
-import brooklyn.location.basic.SshMachineLocation;
+
+import org.apache.brooklyn.location.basic.SshMachineLocation;
+
 import brooklyn.util.collections.Jsonya;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.ssh.BashCommands;
-import brooklyn.util.task.system.ProcessTaskWrapper;
 
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
@@ -91,6 +94,8 @@ public class KnifeConvergeTaskFactory<RET> extends KnifeTaskFactory<RET> {
         File keyfile = ChefServerTasks.extractKeyFile(machine);
         if (keyfile!=null) result.add("-i "+keyfile.getPath());
         else result.add("-P "+checkNotNull(machine.findPassword(), "No password or private key data for "+machine));
+        
+        result.add("--no-host-key-verify");
         
         if (sudo != Boolean.FALSE) result.add("--sudo");
 

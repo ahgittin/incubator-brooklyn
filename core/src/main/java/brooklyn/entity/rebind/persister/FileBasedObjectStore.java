@@ -34,17 +34,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.annotation.Nullable;
 
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.management.ha.HighAvailabilityMode;
+import org.apache.brooklyn.core.util.internal.ssh.process.ProcessTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.BrooklynServerConfig;
-import brooklyn.management.ManagementContext;
-import brooklyn.management.ha.HighAvailabilityMode;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.exceptions.FatalConfigurationRuntimeException;
-import brooklyn.util.internal.ssh.process.ProcessTool;
 import brooklyn.util.io.FileUtil;
 import brooklyn.util.os.Os;
 import brooklyn.util.os.Os.DeletionResult;
@@ -200,8 +200,14 @@ public class FileBasedObjectStore implements PersistenceObjectStore {
             return;
         }
         
+        @SuppressWarnings("deprecation")
         Boolean backups = mgmt.getConfig().getConfig(BrooklynServerConfig.PERSISTENCE_BACKUPS_REQUIRED);
-        if (backups==null) backups = true; // for file system
+        if (Boolean.TRUE.equals(backups)) {
+            log.warn("Using legacy backup for "+this+"; functionality will be removed in future versions, in favor of promotion/demotion-specific backups to a configurable backup location.");
+        }
+        // default backups behaviour here changed to false, Nov 2014, because these backups are now legacy;
+        // we prefer the made when persistence is enabled, using routines in BrooklynPersistenceUtils
+        if (backups==null) backups = false; 
 
         File dir = getBaseDir();
         try {

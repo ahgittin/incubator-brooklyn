@@ -23,10 +23,13 @@ import groovy.lang.Closure;
 
 import java.util.concurrent.Callable;
 
-import brooklyn.event.AttributeSensor;
+import org.apache.brooklyn.api.event.AttributeSensor;
+
 import brooklyn.event.feed.FeedConfig;
 import brooklyn.event.feed.PollConfig;
 import brooklyn.util.GroovyJavaMethods;
+import brooklyn.util.guava.Functionals;
+import brooklyn.util.javalang.JavaClassNames;
 
 import com.google.common.base.Supplier;
 
@@ -73,6 +76,13 @@ public class FunctionPollConfig<S, T> extends PollConfig<S, T, FunctionPollConfi
      */
     @SuppressWarnings("unchecked")
     public <newS> FunctionPollConfig<newS, T> supplier(final Supplier<? extends newS> val) {
+        this.callable = Functionals.callable( checkNotNull(val, "supplier") );
+        return (FunctionPollConfig<newS, T>) this;
+    }
+    
+    /** @deprecated since 0.7.0, kept for legacy compatibility when deserializing */
+    @SuppressWarnings({ "unchecked", "unused" })
+    private <newS> FunctionPollConfig<newS, T> supplierLegacy(final Supplier<? extends newS> val) {
         checkNotNull(val, "supplier");
         this.callable = new Callable<newS>() {
             @Override
@@ -87,4 +97,16 @@ public class FunctionPollConfig<S, T> extends PollConfig<S, T, FunctionPollConfi
         this.callable = GroovyJavaMethods.callableFromClosure(checkNotNull(val, "closure"));
         return this;
     }
+
+    @Override protected String toStringBaseName() { return "fn"; }
+    @Override protected String toStringPollSource() {
+        if (callable==null) return null;
+        String cs = callable.toString();
+        if (!cs.contains( ""+Integer.toHexString(callable.hashCode()) )) {
+            return cs;
+        }
+        // if hashcode is in callable it's probably a custom internal; return class name
+        return JavaClassNames.simpleClassName(callable);
+    }
+
 }

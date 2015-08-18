@@ -22,10 +22,12 @@ import java.io.Serializable;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.brooklyn.api.mementos.LocationMemento;
+import org.apache.brooklyn.api.mementos.TreeNode;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+
 import brooklyn.entity.basic.Entities;
-import brooklyn.mementos.LocationMemento;
-import brooklyn.mementos.TreeNode;
-import brooklyn.util.config.ConfigBag;
+import brooklyn.entity.basic.Sanitizer;
 
 import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.collect.Maps;
@@ -55,7 +57,6 @@ public class BasicLocationMemento extends AbstractTreeNodeMemento implements Loc
             locationConfig.putAll(other.getLocationConfig());
             locationConfigUnused.addAll(other.getLocationConfigUnused());
             locationConfigDescription = other.getLocationConfigDescription();
-            fields.putAll(other.getCustomFields());
             return self();
         }
         public LocationMemento build() {
@@ -101,7 +102,7 @@ public class BasicLocationMemento extends AbstractTreeNodeMemento implements Loc
     @Override
     protected ToStringHelper newVerboseStringHelper() {
         return super.newVerboseStringHelper()
-                .add("config", Entities.sanitize(getLocationConfig()))
+                .add("config", Sanitizer.sanitize(getLocationConfig()))
                 .add("locationConfigDescription", getLocationConfigDescription());
     }
 }

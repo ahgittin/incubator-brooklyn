@@ -24,13 +24,16 @@ import java.text.NumberFormat;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.StringTokenizer;
 
 import javax.annotation.Nullable;
 
+import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
+import brooklyn.util.guava.Maybe;
 import brooklyn.util.time.Time;
 
 import com.google.common.base.CharMatcher;
@@ -106,6 +109,12 @@ public class Strings {
         return !isBlank(s);
     }
 
+    /** @return a {@link Maybe} object which is absent if the argument {@link #isBlank(CharSequence)} */
+    public static <T extends CharSequence> Maybe<T> maybeNonBlank(T s) {
+        if (isNonBlank(s)) return Maybe.of(s);
+        return Maybe.absent();
+    }
+
     /** throws IllegalArgument if string not empty; cf. guava Preconditions.checkXxxx */
     public static void checkNonEmpty(CharSequence s) {
         if (s==null) throw new IllegalArgumentException("String must not be null");
@@ -116,10 +125,25 @@ public class Strings {
         if (isEmpty(s)) throw new IllegalArgumentException(message);
     }
 
+    /**
+     * Removes suffix from the end of the string. Returns string if it does not end with suffix.
+     */
+    public static String removeFromEnd(String string, String suffix) {
+        if (isEmpty(string)) {
+            return string;
+        } else if (!isEmpty(suffix) && string.endsWith(suffix)) {
+            return string.substring(0, string.length() - suffix.length());
+        } else {
+            return string;
+        }
+    }
+
     /** removes the first suffix in the list which is present at the end of string
      * and returns that string; ignores subsequent suffixes if a matching one is found;
      * returns the original string if no suffixes are at the end
+     * @deprecated since 0.7.0 use {@link #removeFromEnd(String, String)} or {@link #removeAllFromEnd(String, String...)}
      */
+    @Deprecated
     public static String removeFromEnd(String string, String ...suffixes) {
         if (isEmpty(string)) return string;
         for (String suffix : suffixes)
@@ -127,66 +151,90 @@ public class Strings {
         return string;
     }
 
-    /** as removeFromEnd, but repeats until all such suffixes are gone */
-    public static String removeAllFromEnd(String string, String ...suffixes) {
+    /**
+     * As removeFromEnd, but repeats until all such suffixes are gone
+     */
+    public static String removeAllFromEnd(String string, String... suffixes) {
+        if (isEmpty(string)) return string;
+        int index = string.length();
         boolean anotherLoopNeeded = true;
         while (anotherLoopNeeded) {
             if (isEmpty(string)) return string;
             anotherLoopNeeded = false;
             for (String suffix : suffixes)
-                if (string.endsWith(suffix)) {
-                    string = string.substring(0, string.length() - suffix.length());
+                if (!isEmpty(suffix) && string.startsWith(suffix, index - suffix.length())) {
+                    index -= suffix.length();
                     anotherLoopNeeded = true;
                     break;
                 }
         }
-        return string;
+        return string.substring(0, index);
+    }
+
+    /**
+     * Removes prefix from the beginning of string. Returns string if it does not begin with prefix.
+     */
+    public static String removeFromStart(String string, String prefix) {
+        if (isEmpty(string)) {
+            return string;
+        } else if (!isEmpty(prefix) && string.startsWith(prefix)) {
+            return string.substring(prefix.length());
+        } else {
+            return string;
+        }
     }
 
     /** removes the first prefix in the list which is present at the start of string
      * and returns that string; ignores subsequent prefixes if a matching one is found;
      * returns the original string if no prefixes match
+     * @deprecated since 0.7.0 use {@link #removeFromStart(String, String)}
      */
+    @Deprecated
     public static String removeFromStart(String string, String ...prefixes) {
         if (isEmpty(string)) return string;
         for (String prefix : prefixes)
-            if (string.startsWith(prefix)) return string.substring(prefix.length());
+            if (prefix!=null && string.startsWith(prefix)) return string.substring(prefix.length());
         return string;
     }
 
-    /** as removeFromStart, but repeats until all such suffixes are gone */
-    public static String removeAllFromStart(String string, String ...prefixes) {
+    /**
+     * As {@link #removeFromStart(String, String)}, repeating until all such prefixes are gone.
+     */
+    public static String removeAllFromStart(String string, String... prefixes) {
+        int index = 0;
         boolean anotherLoopNeeded = true;
         while (anotherLoopNeeded) {
             if (isEmpty(string)) return string;
             anotherLoopNeeded = false;
-            for (String prefix : prefixes)
-                if (string.startsWith(prefix)) {
-                    string = string.substring(prefix.length());
+            for (String prefix : prefixes) {
+                if (!isEmpty(prefix) && string.startsWith(prefix, index)) {
+                    index += prefix.length();
                     anotherLoopNeeded = true;
                     break;
                 }
+            }
         }
-        return string;
+        return string.substring(index);
     }
 
     /** convenience for {@link com.google.common.base.Joiner} */
-    public static String join(Iterable<? extends Object> list, String seperator) {
+    public static String join(Iterable<? extends Object> list, String separator) {
+        if (list==null) return null;
         boolean app = false;
         StringBuilder out = new StringBuilder();
         for (Object s: list) {
-            if (app) out.append(seperator);
+            if (app) out.append(separator);
             out.append(s);
             app = true;
         }
         return out.toString();
     }
     /** convenience for {@link com.google.common.base.Joiner} */
-    public static String join(Object[] list, String seperator) {
+    public static String join(Object[] list, String separator) {
         boolean app = false;
         StringBuilder out = new StringBuilder();
         for (Object s: list) {
-            if (app) out.append(seperator);
+            if (app) out.append(separator);
             out.append(s);
             app = true;
         }
@@ -198,7 +246,7 @@ public class Strings {
         return Joiner.on("\n").join(Arrays.asList(lines));
     }
 
-    /** replaces all key->value entries from the replacement map in source (non-regex) */
+    /** NON-REGEX - replaces all key->value entries from the replacement map in source (non-regex) */
     @SuppressWarnings("rawtypes")
     public static String replaceAll(String source, Map replacements) {
         for (Object rr: replacements.entrySet()) {
@@ -208,11 +256,20 @@ public class Strings {
         return source;
     }
 
-    /** NON-REGEX replaceAll -
-     * replaces all instances in source, of the given pattern, with the given replacement
-     * (not  interpreting any arguments as regular expressions)
-     */
+    /** NON-REGEX replaceAll - see the better, explicitly named {@link #replaceAllNonRegex(String, String, String)}. */
     public static String replaceAll(String source, String pattern, String replacement) {
+        return replaceAllNonRegex(source, pattern, replacement);
+    }
+
+    /** 
+     * Replaces all instances in source, of the given pattern, with the given replacement
+     * (not interpreting any arguments as regular expressions).
+     * <p>
+     * This is actually the same as the very ambiguous {@link String#replace(CharSequence, CharSequence)},
+     * which does replace all, but not using regex like the similarly ambiguous {@link String#replaceAll(String, String)} as.
+     * Alternatively see {@link #replaceAllRegex(String, String, String)}.
+     */
+    public static String replaceAllNonRegex(String source, String pattern, String replacement) {
         if (source==null) return source;
         StringBuilder result = new StringBuilder(source.length());
         for (int i=0; i<source.length(); ) {
@@ -227,12 +284,7 @@ public class Strings {
         return result.toString();
     }
 
-    /** NON-REGEX replacement -- explicit method name for reabaility, doing same as Strings.replaceAll */
-    public static String replaceAllNonRegex(String source, String pattern, String replacement) {
-        return replaceAll(source, pattern, replacement);
-    }
-
-    /** REGEX replacement -- explicit method name for reabaility, doing same as String.replaceAll */
+    /** REGEX replacement -- explicit method name for reabaility, doing same as {@link String#replaceAll(String, String)}. */
     public static String replaceAllRegex(String source, String pattern, String replacement) {
         return source.replaceAll(pattern, replacement);
     }
@@ -587,7 +639,7 @@ public class Strings {
 
     public static String toInitialCapOnly(String value) {
         if (value==null || value.length()==0) return value;
-        return value.substring(0, 1).toUpperCase() + value.substring(1).toLowerCase();
+        return value.substring(0, 1).toUpperCase(Locale.ENGLISH) + value.substring(1).toLowerCase(Locale.ENGLISH);
     }
 
     public static String reverse(String name) {
@@ -635,7 +687,12 @@ public class Strings {
 
     /** returns toString of the object if it is not null, otherwise null */
     public static String toString(Object o) {
-        if (o==null) return null;
+        return toStringWithValueForNull(o, null);
+    }
+
+    /** returns toString of the object if it is not null, otherwise the given value */
+    public static String toStringWithValueForNull(Object o, String valueIfNull) {
+        if (o==null) return valueIfNull;
         return o.toString();
     }
 
@@ -755,13 +812,30 @@ public class Strings {
         return ies(count);
     }
 
-    /** converts a map of any objects to a map of strings, preserving nulls and invoking toString where needed */
+    /** converts a map of any objects to a map of strings, using the tostring, and returning "null" for nulls 
+     * @deprecated since 0.7.0 use {@link #toStringMap(Map, String)} to remove ambiguity about how to handle null */
+    // NB previously the javadoc here was wrong, said it returned null not "null"
+    @Deprecated
     public static Map<String, String> toStringMap(Map<?,?> map) {
+        return toStringMap(map, "null");
+    }
+    /** converts a map of any objects to a map of strings, using {@link Object#toString()},
+     * with the second argument used where a value (or key) is null */
+    public static Map<String, String> toStringMap(Map<?,?> map, String valueIfNull) {
         if (map==null) return null;
         Map<String,String> result = MutableMap.<String, String>of();
         for (Map.Entry<?,?> e: map.entrySet()) {
-            result.put(String.valueOf(e.getKey()), String.valueOf(e.getValue()));
+            result.put(toStringWithValueForNull(e.getKey(), valueIfNull), toStringWithValueForNull(e.getValue(), valueIfNull));
         }
+        return result;
+    }
+    
+    /** converts a list of any objects to a list of strings, using {@link Object#toString()},
+     * with the second argument used where an entry is null */
+    public static List<String> toStringList(List<?> list, String valueIfNull) {
+        if (list==null) return null;
+        List<String> result = MutableList.of();
+        for (Object v: list) result.add(toStringWithValueForNull(v, valueIfNull));
         return result;
     }
 
@@ -831,6 +905,41 @@ public class Strings {
     public static String collapseWhitespace(String x, String whitespaceReplacement) {
         if (x==null) return null;
         return replaceAllRegex(x, "\\s+", whitespaceReplacement);
+    }
+
+    public static String toLowerCase(String value) {
+        if (value==null || value.length()==0) return value;
+        return value.toLowerCase(Locale.ENGLISH);
+    }
+
+    /**
+     * @return null if var is null or empty string, otherwise return var
+     */
+    public static String emptyToNull(String var) {
+        if (isNonEmpty(var)) {
+            return var;
+        } else {
+            return null;
+        }
+    }
+    
+    /** Returns canonicalized string from the given object, made "unique" by:
+     * <li> putting sets into the toString order
+     * <li> appending a hash code if it's longer than the max (and the max is bigger than 0) */
+    public static String toUniqueString(Object x, int optionalMax) {
+        if (x instanceof Iterable && !(x instanceof List)) {
+            // unsorted collections should have a canonical order imposed
+            MutableList<String> result = MutableList.of();
+            for (Object xi: (Iterable<?>)x) {
+                result.add(toUniqueString(xi, optionalMax));
+            }
+            Collections.sort(result);
+            x = result.toString();
+        }
+        if (x==null) return "{null}";
+        String xs = x.toString();
+        if (xs.length()<=optionalMax || optionalMax<=0) return xs;
+        return maxlenWithEllipsis(xs, optionalMax-8)+"/"+Integer.toHexString(xs.hashCode());
     }
 
 }

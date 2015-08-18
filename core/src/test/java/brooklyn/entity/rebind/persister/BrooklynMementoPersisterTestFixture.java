@@ -23,34 +23,35 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.entity.rebind.PersistenceExceptionHandler;
+import org.apache.brooklyn.api.entity.rebind.RebindManager.RebindFailureMode;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.mementos.BrooklynMemento;
+import org.apache.brooklyn.api.mementos.BrooklynMementoPersister;
+import org.apache.brooklyn.api.mementos.BrooklynMementoRawData;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.test.entity.TestApplication;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.testng.SkipException;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.enricher.Enrichers;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.ApplicationBuilder;
 import brooklyn.entity.basic.Entities;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.entity.rebind.PersistenceExceptionHandler;
 import brooklyn.entity.rebind.PersistenceExceptionHandlerImpl;
 import brooklyn.entity.rebind.RebindContextImpl;
-import brooklyn.entity.rebind.RebindContextLookupContext;
-import brooklyn.entity.rebind.RebindManager.RebindFailureMode;
 import brooklyn.entity.rebind.RebindTestUtils;
 import brooklyn.entity.rebind.RecordingRebindExceptionHandler;
-import brooklyn.location.Location;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.SshMachineLocation;
-import brooklyn.management.ManagementContext;
-import brooklyn.mementos.BrooklynMemento;
-import brooklyn.mementos.BrooklynMementoPersister;
-import brooklyn.mementos.BrooklynMementoRawData;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.Policy;
-import brooklyn.test.entity.TestApplication;
-import brooklyn.test.entity.TestEntity;
+
+import org.apache.brooklyn.location.basic.SshMachineLocation;
+
 import brooklyn.test.policy.TestPolicy;
 
 import com.google.common.collect.Iterables;
@@ -104,14 +105,13 @@ public abstract class BrooklynMementoPersisterTestFixture {
         RebindTestUtils.waitForPersisted(localManagementContext);
         
         RecordingRebindExceptionHandler failFast = new RecordingRebindExceptionHandler(RebindFailureMode.FAIL_FAST, RebindFailureMode.FAIL_FAST);
-        RebindContextImpl rebindContext = new RebindContextImpl(failFast, classLoader);
-        RebindContextLookupContext lookupContext = new RebindContextLookupContext(localManagementContext, rebindContext, failFast);
+        RebindContextImpl rebindContext = new RebindContextImpl(localManagementContext, failFast, classLoader);
         // here we force these two to be reegistered in order to resolve the enricher and policy
         // (normally rebind will do that after loading the manifests, but in this test we are just looking at persistence/manifest)
         rebindContext.registerEntity(app.getId(), app);
         rebindContext.registerEntity(entity.getId(), entity);
         
-        BrooklynMemento reloadedMemento = persister.loadMemento(lookupContext, failFast);
+        BrooklynMemento reloadedMemento = persister.loadMemento(null, rebindContext.lookup(), failFast);
         return reloadedMemento;
     }
     

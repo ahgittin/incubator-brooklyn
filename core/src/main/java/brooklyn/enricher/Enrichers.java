@@ -26,29 +26,34 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.EnricherSpec;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
+
 import brooklyn.enricher.basic.AbstractEnricher;
 import brooklyn.enricher.basic.Aggregator;
 import brooklyn.enricher.basic.Combiner;
+import brooklyn.enricher.basic.Joiner;
 import brooklyn.enricher.basic.Propagator;
 import brooklyn.enricher.basic.Transformer;
 import brooklyn.enricher.basic.UpdatingMap;
-import brooklyn.entity.Entity;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
-import brooklyn.event.SensorEvent;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.EnricherSpec;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.collections.MutableSet;
-import brooklyn.util.flags.TypeCoercions;
+import brooklyn.util.text.StringPredicates;
 import brooklyn.util.text.Strings;
 
+import com.google.common.annotations.Beta;
 import com.google.common.base.Function;
-import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -135,12 +140,16 @@ public class Enrichers {
             return new PropagatorBuilder(true, vals);
         }
         
-        /** builds an enricher which transforms a given sensor:
-         * <li> applying a (required) function ({@link TransformerBuilder#computing(Function)}, or {@link TransformerBuilder#computingAverage()}/{@link TransformerBuilder#computingSum()}, mandatory);
+        /**
+         * Builds an enricher which transforms a given sensor:
+         * <li> applying a (required) function ({@link TransformerBuilder#computing(Function)}, or
+         *      {@link AbstractAggregatorBuilder#computingAverage()}/
+         *      {@link AbstractAggregatorBuilder#computingSum()}, mandatory);
          * <li> and publishing it on the entity where the enricher is attached;
          * <li> optionally taking the sensor from a different source entity ({@link TransformerBuilder#from(Entity)});
          * <li> and optionally publishing it as a different sensor ({@link TransformerBuilder#publishing(AttributeSensor)});
-         * <p> (You must supply at least one of the optional values, of course, otherwise the enricher may loop endlessly!) */
+         * <p> You must supply at least one of the optional values, of course, otherwise the enricher may loop endlessly!
+         */
         public <S> TransformerBuilder<S, Object> transforming(AttributeSensor<S> val) {
             return new TransformerBuilder<S, Object>(val);
         }
@@ -149,7 +158,8 @@ public class Enrichers {
             return new CombinerBuilder<S, Object>(vals);
         }
         /** as {@link #combining(Collection)} */
-        public <S> CombinerBuilder<S, Object> combining(AttributeSensor<? extends S>... vals) {
+        @SafeVarargs
+        public final <S> CombinerBuilder<S, Object> combining(AttributeSensor<? extends S>... vals) {
             return new CombinerBuilder<S, Object>(vals);
         }
         /** as {@link #combining(Collection)} but the collection of values comes from the given sensor on multiple entities */
@@ -162,6 +172,12 @@ public class Enrichers {
         public <S,TKey,TVal> UpdatingMapBuilder<S, TKey, TVal> updatingMap(AttributeSensor<Map<TKey,TVal>> target) {
             return new UpdatingMapBuilder<S, TKey, TVal>(target);
         }
+        /** creates a {@link brooklyn.enricher.basic.Joiner} enricher builder
+         * which joins entries in a list to produce a String
+         **/
+        public JoinerBuilder joining(AttributeSensor<?> source) {
+            return new JoinerBuilder(source);
+        }
     }
 
 
@@ -169,7 +185,10 @@ public class Enrichers {
         protected final AttributeSensor<S> aggregating;
         protected AttributeSensor<T> publishing;
         protected Entity fromEntity;
-        protected Function<? super Collection<S>, ? extends T> computing;
+        /** @deprecated since 0.7.0, kept for backwards compatibility for rebind, but not used otherwise */
+        @Deprecated protected Function<? super Collection<S>, ? extends T> computing;
+        // use supplier so latest values of other fields can be used
+        protected Supplier<Function<? super Collection<S>, ? extends T>> computingSupplier;
         protected Boolean fromMembers;
         protected Boolean fromChildren;
         protected Boolean excludingBlank;
@@ -204,13 +223,14 @@ public class Enrichers {
             this.fromHardcodedProducers = ImmutableSet.copyOf(val);
             return self();
         }
+        @SuppressWarnings({ "unchecked", "rawtypes" })
         public B computing(Function<? super Collection<S>, ? extends T> val) {
-            this.computing = checkNotNull(val);
+            this.computingSupplier = (Supplier)Suppliers.ofInstance(checkNotNull(val));
             return self();
         }
-        @SuppressWarnings({ "unchecked", "rawtypes" })
-        public B computingSum() {
-            // relies of TypeCoercion of result from Number to T, and type erasure for us to get away with it!
+        @SuppressWarnings({ "unchecked", "rawtypes", "unused" })
+        private B computingSumLegacy() {
+            // since 0.7.0, kept in case we need to rebind to this
             Function<Collection<S>, Number> function = new Function<Collection<S>, Number>()  {
                 @Override public Number apply(Collection<S> input) {
                     return sum((Collection)input, (Number)defaultValueForUnreportedSensors, (Number)valueToReportIfNoSensors, (TypeToken) publishing.getTypeToken());
@@ -218,14 +238,37 @@ public class Enrichers {
             this.computing((Function)function);
             return self();
         }
-        @SuppressWarnings({ "unchecked", "rawtypes" })
-        public B computingAverage() {
-            // relies of TypeCoercion of result from Number to T, and type erasure for us to get away with it!
+        @SuppressWarnings({ "unchecked", "rawtypes", "unused" })
+        private B computingAverageLegacy() {
+            // since 0.7.0, kept in case we need to rebind to this
             Function<Collection<S>, Number> function = new Function<Collection<S>, Number>() {
                 @Override public Number apply(Collection<S> input) {
                     return average((Collection)input, (Number)defaultValueForUnreportedSensors, (Number)valueToReportIfNoSensors, (TypeToken) publishing.getTypeToken());
                 }};
             this.computing((Function)function);
+            return self();
+        }
+        public B computingSum() {
+            this.computingSupplier = new Supplier<Function<? super Collection<S>, ? extends T>>() {
+                @Override
+                @SuppressWarnings({ "unchecked", "rawtypes" })
+                public Function<? super Collection<S>, ? extends T> get() {
+                    // relies on TypeCoercion of result from Number to T, and type erasure for us to get away with it!
+                    return (Function)new ComputingSum((Number)defaultValueForUnreportedSensors, (Number)valueToReportIfNoSensors, publishing.getTypeToken());
+                }
+            };
+            return self();
+        }
+
+        public B computingAverage() {
+            this.computingSupplier = new Supplier<Function<? super Collection<S>, ? extends T>>() {
+                @Override
+                @SuppressWarnings({ "unchecked", "rawtypes" })
+                public Function<? super Collection<S>, ? extends T> get() {
+                    // relies on TypeCoercion of result from Number to T, and type erasure for us to get away with it!
+                    return (Function)new ComputingAverage((Number)defaultValueForUnreportedSensors, (Number)valueToReportIfNoSensors, publishing.getTypeToken());
+                }
+            };
             return self();
         }
         public B defaultValueForUnreportedSensors(S val) {
@@ -258,6 +301,8 @@ public class Enrichers {
                                 ((input instanceof CharSequence) ? Strings.isNonBlank((CharSequence)input) : true);
                     }
                 };
+                // above kept for deserialization; not sure necessary
+                valueFilter = StringPredicates.isNonBlank(); 
             } else {
                 valueFilter = null;
             }
@@ -268,7 +313,7 @@ public class Enrichers {
                             .put(Aggregator.SOURCE_SENSOR, aggregating)
                             .putIfNotNull(Aggregator.FROM_CHILDREN, fromChildren)
                             .putIfNotNull(Aggregator.FROM_MEMBERS, fromMembers)
-                            .putIfNotNull(Aggregator.TRANSFORMATION, computing)
+                            .putIfNotNull(Aggregator.TRANSFORMATION, computingSupplier.get())
                             .putIfNotNull(Aggregator.FROM_HARDCODED_PRODUCERS, fromHardcodedProducers)
                             .putIfNotNull(Aggregator.ENTITY_FILTER, entityFilter)
                             .putIfNotNull(Aggregator.VALUE_FILTER, valueFilter)
@@ -283,7 +328,7 @@ public class Enrichers {
                     .add("aggregating", aggregating)
                     .add("publishing", publishing)
                     .add("fromEntity", fromEntity)
-                    .add("computing", computing)
+                    .add("computing", computingSupplier)
                     .add("fromMembers", fromMembers)
                     .add("fromChildren", fromChildren)
                     .add("excludingBlank", excludingBlank)
@@ -308,6 +353,7 @@ public class Enrichers {
         // For summing/averaging
         protected Object defaultValueForUnreportedSensors;
         
+        @SafeVarargs
         public AbstractCombinerBuilder(AttributeSensor<? extends S>... vals) {
             this(ImmutableList.copyOf(vals));
         }
@@ -492,10 +538,10 @@ public class Enrichers {
             if (propagatingAllBut!=null && !Iterables.isEmpty(propagatingAllBut)) {
                 List<String> allBut = MutableList.of();
                 for (Sensor<?> s: propagatingAllBut) allBut.add(s.getName());
-                summary.add("ALL_BUT:"+Joiner.on(",").join(allBut));
+                summary.add("ALL_BUT:"+com.google.common.base.Joiner.on(",").join(allBut));
             }
             
-            return "propagating["+fromEntity.getId()+":"+Joiner.on(",").join(summary)+"]";
+            return "propagating["+fromEntity.getId()+":"+com.google.common.base.Joiner.on(",").join(summary)+"]";
         }
         public EnricherSpec<? extends Enricher> build() {
             return super.build().configure(MutableMap.builder()
@@ -577,6 +623,67 @@ public class Enrichers {
         }
     }
 
+    protected abstract static class AbstractJoinerBuilder<B extends AbstractJoinerBuilder<B>> extends AbstractEnricherBuilder<B> {
+        protected final AttributeSensor<?> transforming;
+        protected AttributeSensor<String> publishing;
+        protected Entity fromEntity;
+        protected String separator;
+        protected Boolean quote;
+        protected Integer minimum;
+        protected Integer maximum;
+
+        public AbstractJoinerBuilder(AttributeSensor<?> source) {
+            super(Joiner.class);
+            this.transforming = checkNotNull(source);
+        }
+        public B publishing(AttributeSensor<String> target) {
+            this.publishing = checkNotNull(target);
+            return self();
+        }
+        public B separator(String separator) {
+            this.separator = separator;
+            return self();
+        }
+        public B quote(Boolean quote) {
+            this.quote = quote;
+            return self();
+        }
+        public B minimum(Integer minimum) {
+            this.minimum = minimum;
+            return self();
+        }
+        public B maximum(Integer maximum) {
+            this.maximum = maximum;
+            return self();
+        }
+        @Override
+        protected String getDefaultUniqueTag() {
+            if (transforming==null || publishing==null) return null;
+            return "joiner:"+transforming.getName()+"->"+publishing.getName();
+        }
+        public EnricherSpec<?> build() {
+            return super.build().configure(MutableMap.builder()
+                            .putIfNotNull(Joiner.PRODUCER, fromEntity)
+                            .put(Joiner.TARGET_SENSOR, publishing)
+                            .put(Joiner.SOURCE_SENSOR, transforming)
+                            .putIfNotNull(Joiner.SEPARATOR, separator)
+                            .putIfNotNull(Joiner.QUOTE, quote)
+                            .putIfNotNull(Joiner.MINIMUM, minimum)
+                            .putIfNotNull(Joiner.MAXIMUM, maximum)
+                            .build());
+        }
+        
+        @Override
+        public String toString() {
+            return Objects.toStringHelper(this)
+                    .omitNullValues()
+                    .add("publishing", publishing)
+                    .add("transforming", transforming)
+                    .add("separator", separator)
+                    .toString();
+        }
+    }
+    
     public static class InitialBuilder extends AbstractInitialBuilder<InitialBuilder> {
     }
 
@@ -602,6 +709,7 @@ public class Enrichers {
     }
 
     public static class CombinerBuilder<S, T> extends AbstractCombinerBuilder<S, T, CombinerBuilder<S, T>> {
+        @SafeVarargs
         public CombinerBuilder(AttributeSensor<? extends S>... vals) {
             super(vals);
         }
@@ -619,6 +727,55 @@ public class Enrichers {
     public static class UpdatingMapBuilder<S, TKey, TVal> extends AbstractUpdatingMapBuilder<S, TKey, TVal, UpdatingMapBuilder<S, TKey, TVal>> {
         public UpdatingMapBuilder(AttributeSensor<Map<TKey,TVal>> val) {
             super(val);
+        }
+    }
+
+    public static class JoinerBuilder extends AbstractJoinerBuilder<JoinerBuilder> {
+        public JoinerBuilder(AttributeSensor<?> source) {
+            super(source);
+        }
+    }
+
+    @Beta
+    private abstract static class ComputingNumber<T extends Number> implements Function<Collection<T>, T> {
+        protected final Number defaultValueForUnreportedSensors;
+        protected final Number valueToReportIfNoSensors;
+        protected final TypeToken<T> typeToken;
+        @SuppressWarnings({ "rawtypes", "unchecked" })
+        public ComputingNumber(Number defaultValueForUnreportedSensors, Number valueToReportIfNoSensors, TypeToken<T> typeToken) {
+            this.defaultValueForUnreportedSensors = defaultValueForUnreportedSensors;
+            this.valueToReportIfNoSensors = valueToReportIfNoSensors;
+            if (typeToken!=null && TypeToken.of(Number.class).isAssignableFrom(typeToken.getType())) {
+                this.typeToken = typeToken;
+            } else if (typeToken==null || typeToken.isAssignableFrom(Number.class)) {
+                // use double if e.g. Object is supplied
+                this.typeToken = (TypeToken)TypeToken.of(Double.class);
+            } else {
+                throw new IllegalArgumentException("Type "+typeToken+" is not valid for "+this);
+            }
+        }
+        @Override public abstract T apply(Collection<T> input);
+    }
+
+    @Beta
+    public static class ComputingSum<T extends Number> extends ComputingNumber<T> {
+        public ComputingSum(Number defaultValueForUnreportedSensors, Number valueToReportIfNoSensors, TypeToken<T> typeToken) {
+            super(defaultValueForUnreportedSensors, valueToReportIfNoSensors, typeToken);
+        }
+        @SuppressWarnings({ "rawtypes", "unchecked" })
+        @Override public T apply(Collection<T> input) {
+            return (T) sum((Collection)input, (Number)defaultValueForUnreportedSensors, (Number)valueToReportIfNoSensors, typeToken);
+        }
+    }
+
+    @Beta
+    public static class ComputingAverage<T extends Number> extends ComputingNumber<T> {
+        public ComputingAverage(Number defaultValueForUnreportedSensors, Number valueToReportIfNoSensors, TypeToken<T> typeToken) {
+            super(defaultValueForUnreportedSensors, valueToReportIfNoSensors, typeToken);
+        }
+        @SuppressWarnings({ "rawtypes", "unchecked" })
+        @Override public T apply(Collection<T> input) {
+            return (T) average((Collection)input, (Number)defaultValueForUnreportedSensors, (Number)valueToReportIfNoSensors, typeToken);
         }
     }
 

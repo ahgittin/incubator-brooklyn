@@ -21,12 +21,13 @@ package brooklyn.entity.basic;
 import java.util.Iterator;
 import java.util.List;
 
-import brooklyn.entity.Entity;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.EntityAdjunct;
+
 import brooklyn.entity.basic.ServiceStateLogic.ComputeServiceIndicatorsFromChildrenAndMembers;
 import brooklyn.entity.basic.ServiceStateLogic.ComputeServiceState;
 import brooklyn.entity.basic.ServiceStateLogic.ServiceNotUpLogic;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.EntityAdjunct;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.guava.Maybe;
 

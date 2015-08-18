@@ -23,22 +23,27 @@ import static org.testng.Assert.assertTrue;
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.test.EntityTestUtils;
+import org.apache.brooklyn.test.entity.TestEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.entity.BrooklynAppUnitTestSupport;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.event.AttributeSensor;
+import brooklyn.entity.basic.EntityInternal;
+import brooklyn.entity.basic.EntityInternal.FeedSupport;
 import brooklyn.event.basic.Sensors;
 import brooklyn.event.feed.function.FunctionFeedTest;
 import brooklyn.event.feed.ssh.SshPollValue;
 import brooklyn.event.feed.ssh.SshValueFunctions;
-import brooklyn.location.basic.LocalhostMachineProvisioningLocation;
+import org.apache.brooklyn.location.basic.LocalhostMachineProvisioningLocation;
 import brooklyn.test.Asserts;
-import brooklyn.test.EntityTestUtils;
-import brooklyn.test.entity.TestEntity;
 import brooklyn.util.stream.Streams;
 
 import com.google.common.base.Function;
@@ -47,6 +52,8 @@ import com.google.common.collect.ImmutableMap;
 
 public class ShellFeedIntegrationTest extends BrooklynAppUnitTestSupport {
 
+    private static final Logger log = LoggerFactory.getLogger(ShellFeedIntegrationTest.class);
+    
     final static AttributeSensor<String> SENSOR_STRING = Sensors.newStringSensor("aString", "");
     final static AttributeSensor<Integer> SENSOR_INT = Sensors.newIntegerSensor("anInt", "");
     final static AttributeSensor<Long> SENSOR_LONG = Sensors.newLongSensor("aLong", "");
@@ -82,6 +89,20 @@ public class ShellFeedIntegrationTest extends BrooklynAppUnitTestSupport {
                 .build();
 
         EntityTestUtils.assertAttributeEqualsEventually(entity, SENSOR_INT, 123);
+    }
+    
+    @Test(groups="Integration")
+    public void testFeedDeDupe() throws Exception {
+        testReturnsShellExitStatus();
+        entity.addFeed(feed);
+        log.info("Feed 0 is: "+feed);
+        
+        testReturnsShellExitStatus();
+        log.info("Feed 1 is: "+feed);
+        entity.addFeed(feed);
+                
+        FeedSupport feeds = ((EntityInternal)entity).feeds();
+        Assert.assertEquals(feeds.getFeeds().size(), 1, "Wrong feed count: "+feeds.getFeeds());
     }
     
     // TODO timeout no longer supported; would be nice to have a generic task-timeout feature,

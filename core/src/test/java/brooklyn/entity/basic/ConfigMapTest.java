@@ -32,6 +32,11 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.management.ExecutionManager;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.core.util.task.BasicTask;
+import org.apache.brooklyn.core.util.task.DeferredSupplier;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -41,13 +46,8 @@ import brooklyn.config.ConfigKey;
 import brooklyn.config.ConfigMap;
 import brooklyn.config.ConfigPredicates;
 import brooklyn.entity.BrooklynAppUnitTestSupport;
-import brooklyn.entity.Entity;
 import brooklyn.event.basic.BasicAttributeSensorAndConfigKey.IntegerAttributeSensorAndConfigKey;
-import brooklyn.management.ExecutionManager;
-import brooklyn.management.Task;
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.task.BasicTask;
-import brooklyn.util.task.DeferredSupplier;
 
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;

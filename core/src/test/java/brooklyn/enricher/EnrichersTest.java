@@ -30,16 +30,19 @@ import brooklyn.entity.BrooklynAppUnitTestSupport;
 import brooklyn.entity.basic.BasicGroup;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityAdjuncts;
-import brooklyn.entity.basic.EntitySubscriptionTest.RecordingSensorEventListener;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.SensorEvent;
+
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.entity.basic.RecordingSensorEventListener;
+import org.apache.brooklyn.test.EntityTestUtils;
+import org.apache.brooklyn.test.entity.TestEntity;
+
 import brooklyn.event.basic.Sensors;
-import brooklyn.policy.Enricher;
 import brooklyn.test.Asserts;
-import brooklyn.test.EntityTestUtils;
-import brooklyn.test.entity.TestEntity;
 import brooklyn.util.collections.CollectionFunctionals;
+import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.collections.MutableSet;
 import brooklyn.util.guava.Functionals;
@@ -189,7 +192,7 @@ public class EnrichersTest extends BrooklynAppUnitTestSupport {
 
     @Test(groups="Integration") // because takes a second
     public void testTransformingRespectsUnchangedButWillRepublish() {
-        RecordingSensorEventListener record = new RecordingSensorEventListener();
+        RecordingSensorEventListener<String> record = new RecordingSensorEventListener<>();
         app.getManagementContext().getSubscriptionManager().subscribe(entity, STR2, record);
         
         entity.addEnricher(Enrichers.builder()
@@ -200,29 +203,29 @@ public class EnrichersTest extends BrooklynAppUnitTestSupport {
                             return ("ignoredval".equals(input)) ? Entities.UNCHANGED : input;
                         }})
                 .build());
-        Asserts.assertThat(record.events, CollectionFunctionals.sizeEquals(0));
-        
+        Asserts.assertThat(record.getEvents(), CollectionFunctionals.sizeEquals(0));
+
         entity.setAttribute(STR1, "myval");
-        Asserts.eventually(Suppliers.ofInstance(record.events), CollectionFunctionals.sizeEquals(1));
+        Asserts.eventually(Suppliers.ofInstance(record), CollectionFunctionals.sizeEquals(1));
         EntityTestUtils.assertAttributeEquals(entity, STR2, "myval");
-        
+
         entity.setAttribute(STR1, "ignoredval");
         EntityTestUtils.assertAttributeEqualsContinually(entity, STR2, "myval");
-        
+
         entity.setAttribute(STR1, "myval2");
-        Asserts.eventually(Suppliers.ofInstance(record.events), CollectionFunctionals.sizeEquals(2));
+        Asserts.eventually(Suppliers.ofInstance(record), CollectionFunctionals.sizeEquals(2));
         EntityTestUtils.assertAttributeEquals(entity, STR2, "myval2");
-        
+
         entity.setAttribute(STR1, "myval2");
         entity.setAttribute(STR1, "myval2");
         entity.setAttribute(STR1, "myval3");
-        Asserts.eventually(Suppliers.ofInstance(record.events), CollectionFunctionals.sizeEquals(5));
+        Asserts.eventually(Suppliers.ofInstance(record), CollectionFunctionals.sizeEquals(5));
     }
 
     public void testTransformingSuppressDuplicates() {
-        RecordingSensorEventListener record = new RecordingSensorEventListener();
+        RecordingSensorEventListener<String> record = new RecordingSensorEventListener<>();
         app.getManagementContext().getSubscriptionManager().subscribe(entity, STR2, record);
-        
+
         entity.addEnricher(Enrichers.builder()
                 .transforming(STR1)
                 .publishing(STR2)
@@ -231,14 +234,14 @@ public class EnrichersTest extends BrooklynAppUnitTestSupport {
                 .build());
 
         entity.setAttribute(STR1, "myval");
-        Asserts.eventually(Suppliers.ofInstance(record.events), CollectionFunctionals.sizeEquals(1));
+        Asserts.eventually(Suppliers.ofInstance(record), CollectionFunctionals.sizeEquals(1));
         EntityTestUtils.assertAttributeEquals(entity, STR2, "myval");
-        
+
         entity.setAttribute(STR1, "myval2");
         entity.setAttribute(STR1, "myval2");
         entity.setAttribute(STR1, "myval3");
         EntityTestUtils.assertAttributeEqualsContinually(entity, STR2, "myval3");
-        Asserts.assertThat(record.events, CollectionFunctionals.sizeEquals(3));
+        Asserts.assertThat(record.getEvents(), CollectionFunctionals.sizeEquals(3));
     }
 
     @Test
@@ -250,6 +253,9 @@ public class EnrichersTest extends BrooklynAppUnitTestSupport {
         
         entity2.setAttribute(STR1, "myval");
         EntityTestUtils.assertAttributeEqualsEventually(entity, STR1, "myval");
+        
+        entity2.setAttribute(STR1, null);
+        EntityTestUtils.assertAttributeEqualsEventually(entity, STR1, null);
     }
     
     @Test
@@ -430,5 +436,68 @@ public class EnrichersTest extends BrooklynAppUnitTestSupport {
         entity.setAttribute(LONG1, 1L);
         EntityTestUtils.assertAttributeEqualsEventually(entity, mapSensor, MutableMap.<String,String>of());
     }
+
+    private static AttributeSensor<Object> LIST_SENSOR = Sensors.newSensor(Object.class, "sensor.list");
+    
+    @Test
+    public void testJoinerDefault() {
+        entity.addEnricher(Enrichers.builder()
+                .joining(LIST_SENSOR)
+                .publishing(TestEntity.NAME)
+                .build());
+        // null values ignored, and it quotes
+        entity.setAttribute(LIST_SENSOR, MutableList.<String>of("a", "\"b").append(null));
+        EntityTestUtils.assertAttributeEqualsEventually(entity, TestEntity.NAME, "\"a\",\"\\\"b\"");
+        
+        // empty list causes ""
+        entity.setAttribute(LIST_SENSOR, MutableList.<String>of().append(null));
+        EntityTestUtils.assertAttributeEqualsEventually(entity, TestEntity.NAME, "");
+        
+        // null causes null
+        entity.setAttribute(LIST_SENSOR, null);
+        EntityTestUtils.assertAttributeEqualsEventually(entity, TestEntity.NAME, null);
+    }
+
+    @Test
+    public void testJoinerUnquoted() {
+        entity.setAttribute(LIST_SENSOR, MutableList.<String>of("a", "\"b", "ccc").append(null));
+        entity.addEnricher(Enrichers.builder()
+            .joining(LIST_SENSOR)
+            .publishing(TestEntity.NAME)
+            .minimum(1)
+            .maximum(2)
+            .separator(":")
+            .quote(false)
+            .build());
+        // in this case, it should be immediately available upon adding the enricher
+        EntityTestUtils.assertAttributeEquals(entity, TestEntity.NAME, "a:\"b");
+        
+        // empty list causes null here, because below the minimum
+        entity.setAttribute(LIST_SENSOR, MutableList.<String>of().append(null));
+        EntityTestUtils.assertAttributeEqualsEventually(entity, TestEntity.NAME, null);
+    }
+
+    @Test
+    public void testJoinerMinMax() {
+        entity.addEnricher(Enrichers.builder()
+                .joining(LIST_SENSOR)
+                .publishing(TestEntity.NAME)
+                .minimum(2)
+                .maximum(4)
+                .quote(false)
+                .build());
+        // null values ignored, and it quotes
+        entity.setAttribute(LIST_SENSOR, MutableList.<String>of("a", "b"));
+        EntityTestUtils.assertAttributeEqualsEventually(entity, TestEntity.NAME, "a,b");
+        
+        // empty list causes ""
+        entity.setAttribute(LIST_SENSOR, MutableList.<String>of("x"));
+        EntityTestUtils.assertAttributeEqualsEventually(entity, TestEntity.NAME, null);
+        
+        // null causes null
+        entity.setAttribute(LIST_SENSOR, MutableList.<String>of("a", "b", "c", "d", "e"));
+        EntityTestUtils.assertAttributeEqualsEventually(entity, TestEntity.NAME, "a,b,c,d");
+    }
+
 
 }

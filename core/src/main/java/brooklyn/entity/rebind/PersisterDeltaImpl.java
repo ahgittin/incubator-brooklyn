@@ -19,78 +19,27 @@
 package brooklyn.entity.rebind;
 
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Set;
 
-import brooklyn.mementos.BrooklynMementoPersister.Delta;
-import brooklyn.mementos.CatalogItemMemento;
-import brooklyn.mementos.EnricherMemento;
-import brooklyn.mementos.EntityMemento;
-import brooklyn.mementos.FeedMemento;
-import brooklyn.mementos.LocationMemento;
-import brooklyn.mementos.PolicyMemento;
+import org.apache.brooklyn.api.entity.rebind.BrooklynObjectType;
+import org.apache.brooklyn.api.mementos.CatalogItemMemento;
+import org.apache.brooklyn.api.mementos.EnricherMemento;
+import org.apache.brooklyn.api.mementos.EntityMemento;
+import org.apache.brooklyn.api.mementos.FeedMemento;
+import org.apache.brooklyn.api.mementos.LocationMemento;
+import org.apache.brooklyn.api.mementos.Memento;
+import org.apache.brooklyn.api.mementos.PolicyMemento;
+import org.apache.brooklyn.api.mementos.BrooklynMementoPersister.Delta;
+import org.apache.brooklyn.api.mementos.BrooklynMementoPersister.MutableDelta;
 
+import com.google.common.annotations.Beta;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 
-public class PersisterDeltaImpl implements Delta {
+public class PersisterDeltaImpl implements Delta, MutableDelta {
     
-    public static Builder builder() {
-        return new Builder();
-    }
-    
-    public static class Builder {
-        private final PersisterDeltaImpl delta = new PersisterDeltaImpl();
-
-        public Builder locations(Collection<? extends LocationMemento> vals) {
-            delta.locations.addAll(vals);
-            return this;
-        }
-        public Builder entities(Collection<? extends EntityMemento> vals) {
-            delta.entities.addAll(vals);
-            return this;
-        }
-        public Builder policies(Collection<? extends PolicyMemento> vals) {
-            delta.policies.addAll(vals);
-            return this;
-        }
-        public Builder enrichers(Collection<? extends EnricherMemento> vals) {
-            delta.enrichers.addAll(vals);
-            return this;
-        }
-        public Builder feeds(Collection<? extends FeedMemento> vals) {
-            delta.feeds.addAll(vals);
-            return this;
-        }
-        public Builder catalogItems(Collection<? extends CatalogItemMemento> vals) {
-            delta.catalogItems.addAll(vals);
-            return this;
-        }
-        public Builder removedLocationIds(Collection<String> vals) {
-            delta.removedLocationIds.addAll(vals);
-            return this;
-        }
-        public Builder removedEntityIds(Collection<String> vals) {
-            delta.removedEntityIds.addAll(vals);
-            return this;
-        }
-        public Builder removedPolicyIds(Collection<String> vals) {
-            delta.removedPolicyIds.addAll(vals);
-            return this;
-        }
-        public Builder removedEnricherIds(Collection<String> vals) {
-            delta.removedEnricherIds.addAll(vals);
-            return this;
-        }
-        public Builder removedFeedIds(Collection<String> vals) {
-            delta.removedFeedIds.addAll(vals);
-            return this;
-        }
-        public Builder removedCatalogItemIds(Collection<String> vals) {
-            delta.removedCatalogItemIds.addAll(vals);
-            return this;
-        }
-        public Delta build() {
-            return delta;
-        }
-    }
+    // use multiset?
     
     Collection<LocationMemento> locations = Sets.newLinkedHashSet();
     Collection<EntityMemento> entities = Sets.newLinkedHashSet();
@@ -98,6 +47,7 @@ public class PersisterDeltaImpl implements Delta {
     Collection<EnricherMemento> enrichers = Sets.newLinkedHashSet();
     Collection<FeedMemento> feeds = Sets.newLinkedHashSet();
     Collection<CatalogItemMemento> catalogItems = Sets.newLinkedHashSet();
+    
     Collection<String> removedLocationIds = Sets.newLinkedHashSet();
     Collection<String> removedEntityIds = Sets.newLinkedHashSet();
     Collection<String> removedPolicyIds = Sets.newLinkedHashSet();
@@ -107,61 +57,118 @@ public class PersisterDeltaImpl implements Delta {
 
     @Override
     public Collection<LocationMemento> locations() {
-        return locations;
+        return Collections.unmodifiableCollection(locations);
     }
 
     @Override
     public Collection<EntityMemento> entities() {
-        return entities;
+        return Collections.unmodifiableCollection(entities);
     }
 
     @Override
     public Collection<PolicyMemento> policies() {
-        return policies;
+        return Collections.unmodifiableCollection(policies);
     }
 
     @Override
     public Collection<EnricherMemento> enrichers() {
-        return enrichers;
+        return Collections.unmodifiableCollection(enrichers);
     }
     
     @Override
     public Collection<FeedMemento> feeds() {
-        return feeds;
+        return Collections.unmodifiableCollection(feeds);
     }
 
     @Override
     public Collection<CatalogItemMemento> catalogItems() {
-        return catalogItems;
+        return Collections.unmodifiableCollection(catalogItems);
     }
 
     @Override
     public Collection<String> removedLocationIds() {
-        return removedLocationIds;
+        return Collections.unmodifiableCollection(removedLocationIds);
     }
 
     @Override
     public Collection<String> removedEntityIds() {
-        return removedEntityIds;
+        return Collections.unmodifiableCollection(removedEntityIds);
     }
     
     @Override
     public Collection<String> removedPolicyIds() {
-        return removedPolicyIds;
+        return Collections.unmodifiableCollection(removedPolicyIds);
     }
     
     @Override
     public Collection<String> removedEnricherIds() {
-        return removedEnricherIds;
+        return Collections.unmodifiableCollection(removedEnricherIds);
     }
     
     @Override
     public Collection<String> removedFeedIds() {
-        return removedFeedIds;
+        return Collections.unmodifiableCollection(removedFeedIds);
     }
 
     @Override
     public Collection<String> removedCatalogItemIds() {
-        return removedCatalogItemIds;
+        return Collections.unmodifiableCollection(removedCatalogItemIds);
     }
+
+    @Override
+    public Collection<? extends Memento> getObjectsOfType(BrooklynObjectType type) {
+        return Collections.unmodifiableCollection(getMutableObjectsOfType(type));
+    }
+    
+    @SuppressWarnings("unchecked")
+    @Beta
+    private Collection<Memento> getMutableUncheckedObjectsOfType(BrooklynObjectType type) {
+        return (Collection<Memento>)getMutableObjectsOfType(type);
+    }
+    private Collection<? extends Memento> getMutableObjectsOfType(BrooklynObjectType type) {
+        switch (type) {
+        case ENTITY: return entities;
+        case LOCATION: return locations;
+        case POLICY: return policies;
+        case ENRICHER: return enrichers;
+        case FEED: return feeds;
+        case CATALOG_ITEM: return catalogItems;
+        case UNKNOWN: 
+        default:
+            throw new IllegalArgumentException(type+" not supported");
+        }
+    }
+    
+    @Override
+    public Collection<String> getRemovedIdsOfType(BrooklynObjectType type) {
+        return Collections.unmodifiableCollection(getRemovedIdsOfTypeMutable(type));
+    }
+    
+    private Collection<String> getRemovedIdsOfTypeMutable(BrooklynObjectType type) {
+        switch (type) {
+        case ENTITY: return removedEntityIds;
+        case LOCATION: return removedLocationIds;
+        case POLICY: return removedPolicyIds;
+        case ENRICHER: return removedEnricherIds;
+        case FEED: return removedFeedIds;
+        case CATALOG_ITEM: return removedCatalogItemIds;
+        case UNKNOWN: 
+        default:
+            throw new IllegalArgumentException(type+" not supported");
+        }
+    }
+
+    public void add(BrooklynObjectType type, Memento memento) {
+        getMutableUncheckedObjectsOfType(type).add(memento);
+    }
+
+    @Override
+    public void addAll(BrooklynObjectType type, Iterable<? extends Memento> mementos) {
+        Iterables.addAll(getMutableUncheckedObjectsOfType(type), mementos);
+    }
+    
+    public void removed(BrooklynObjectType type, Set<String> removedIdsOfType) {
+        getRemovedIdsOfTypeMutable(type).addAll(removedIdsOfType);    
+    }
+
 }

@@ -28,18 +28,18 @@ services:
       attributes:
         postgresql:
           sql: io/cloudsoft/opengamma/config/create-brooklyn-db.sql
-  - type: brooklyn.entity.messaging.activemq.ActiveMQBroker
+  - type: org.apache.brooklyn.entity.messaging.activemq.ActiveMQBroker
     id: og-amq
 - type: Fabric
   id: web-fabric
   spec:
-    type: brooklyn.entity.webapp.ControlledDynamicWebAppCluster
+    type: org.apache.brooklyn.entity.webapp.ControlledDynamicWebAppCluster
     brooklyn.config:
       dynamiccluster.memberspec:
         type: io.cloudsoft.opengamma.server.OpenGammaServer
         opengamma.services.message-bus.entity: og-amq
         opengamma.services.database.entity: og-db
-- type: brooklyn.entity.dns.geoscaling.GeoscalingDnsService
+- type: org.apache.brooklyn.entity.dns.geoscaling.GeoscalingDnsService
   brooklyn.config:
     username: cloudsoft
     password: $brooklyn.property("brooklyn.geoscaling.password")

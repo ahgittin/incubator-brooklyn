@@ -22,25 +22,29 @@ import static org.testng.Assert.assertTrue;
 
 import java.io.File;
 
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.test.EntityTestUtils;
+import org.apache.brooklyn.test.entity.TestApplication;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import brooklyn.entity.Effector;
 import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.Entities;
-import brooklyn.entity.basic.EntityLocal;
 import brooklyn.entity.effector.Effectors;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.Sensors;
-import brooklyn.location.Location;
-import brooklyn.test.Asserts;
-import brooklyn.test.entity.TestApplication;
-import brooklyn.test.entity.TestEntity;
+
+import org.apache.brooklyn.location.basic.SshMachineLocation;
+
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.config.ConfigBag;
+import brooklyn.util.time.Duration;
 
 import com.google.common.collect.ImmutableList;
 
@@ -51,12 +55,14 @@ public class SshCommandIntegrationTest {
     final static Effector<String> EFFECTOR_SAY_HI = Effectors.effector(String.class, "sayHi").buildAbstract();
 
     private TestApplication app;
+    private SshMachineLocation machine;
     private EntityLocal entity;
     
     @BeforeMethod(alwaysRun=true)
     public void setUp() throws Exception {
         app = TestApplication.Factory.newManagedInstanceForTests();
-        entity = app.createAndManageChild(EntitySpec.create(TestEntity.class).location(app.newLocalhostProvisioningLocation().obtain()));
+        machine = app.newLocalhostProvisioningLocation().obtain();
+        entity = app.createAndManageChild(EntitySpec.create(TestEntity.class).location(machine));
         app.start(ImmutableList.<Location>of());
     }
 
@@ -70,18 +76,14 @@ public class SshCommandIntegrationTest {
         File tempFile = File.createTempFile("testSshCommand", "txt");
         tempFile.deleteOnExit();
         new SshCommandSensor<String>(ConfigBag.newInstance()
+                .configure(SshCommandSensor.SENSOR_PERIOD, Duration.millis(100))
                 .configure(SshCommandSensor.SENSOR_NAME, SENSOR_STRING.getName())
                 .configure(SshCommandSensor.SENSOR_COMMAND, "echo foo > "+tempFile.getAbsolutePath()+"\n"
                     + "wc "+tempFile.getAbsolutePath()))
             .apply(entity);
         entity.setAttribute(Attributes.SERVICE_UP, true);
 
-        Asserts.succeedsEventually(new Runnable() {
-            public void run() {
-                String val = entity.getAttribute(SENSOR_STRING);
-                assertTrue(val != null);
-            }});
-        String val = entity.getAttribute(SENSOR_STRING);
+        String val = EntityTestUtils.assertAttributeEventuallyNonNull(entity, SENSOR_STRING);
         assertTrue(val.contains("1"), "val="+val);
         String[] counts = val.trim().split("\\s+");
         Assert.assertEquals(counts.length, 4, "val="+val);

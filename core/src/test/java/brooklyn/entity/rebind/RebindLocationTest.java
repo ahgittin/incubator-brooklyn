@@ -27,23 +27,26 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.entity.rebind.RebindContext;
+import org.apache.brooklyn.api.entity.rebind.RebindSupport;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.mementos.LocationMemento;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+import org.apache.brooklyn.test.entity.TestApplication;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.config.ConfigKey;
 import brooklyn.entity.basic.ConfigKeys;
-import brooklyn.entity.basic.EntityInternal;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.rebind.RebindEntityTest.MyEntity;
-import brooklyn.location.Location;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.AbstractLocation;
-import brooklyn.mementos.LocationMemento;
+
+import org.apache.brooklyn.location.basic.AbstractLocation;
+
 import brooklyn.test.Asserts;
-import brooklyn.test.entity.TestApplication;
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.flags.SetFromFlag;
 
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
@@ -241,7 +244,7 @@ public class RebindLocationTest extends RebindTestFixtureWithApp {
         newApp = rebind();
         MyLocation newLoc = (MyLocation) Iterables.get(newApp.getLocations(), 0);
 
-        assertNull(newLoc.getAllConfigBag().getStringKey("id"));
+        assertNull(newLoc.config().getBag().getStringKey("id"));
         assertEquals(newLoc.getId(), origLoc.getId());
     }
     

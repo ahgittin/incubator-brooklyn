@@ -18,12 +18,13 @@
  */
 package brooklyn.entity.brooklyn;
 
-import brooklyn.entity.Entity;
-import brooklyn.entity.proxying.ImplementedBy;
-import brooklyn.event.AttributeSensor;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.proxying.ImplementedBy;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+
 import brooklyn.event.basic.BasicAttributeSensor;
 import brooklyn.event.basic.BasicAttributeSensorAndConfigKey;
-import brooklyn.util.flags.SetFromFlag;
 
 @ImplementedBy(BrooklynMetricsImpl.class)
 public interface BrooklynMetrics extends Entity {

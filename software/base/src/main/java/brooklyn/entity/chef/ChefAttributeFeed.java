@@ -25,25 +25,24 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.SortedSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.management.ExecutionContext;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
+import org.apache.brooklyn.core.util.task.system.ProcessTaskWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.ConfigKey;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.EntityInternal;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.feed.AbstractFeed;
 import brooklyn.event.feed.PollHandler;
 import brooklyn.event.feed.Poller;
 import brooklyn.event.feed.ssh.SshPollValue;
-import brooklyn.management.ExecutionContext;
-import brooklyn.util.flags.TypeCoercions;
-import brooklyn.util.task.system.ProcessTaskWrapper;
 import brooklyn.util.time.Duration;
 
 import com.google.common.base.Joiner;
@@ -118,6 +117,7 @@ public class ChefAttributeFeed extends AbstractFeed {
         private String nodeName;
         private Set<ChefAttributePollConfig> polls = Sets.newLinkedHashSet();
         private Duration period = Duration.of(30, TimeUnit.SECONDS);
+        private String uniqueTag;
         private volatile boolean built;
 
         public Builder entity(EntityLocal val) {
@@ -137,6 +137,7 @@ public class ChefAttributeFeed extends AbstractFeed {
             polls.add(config);
             return this;
         }
+        @SuppressWarnings("unchecked")
         public Builder addSensor(String chefAttributePath, AttributeSensor sensor) {
             return addSensor(new ChefAttributePollConfig(sensor).chefAttributePath(chefAttributePath));
         }
@@ -167,6 +168,10 @@ public class ChefAttributeFeed extends AbstractFeed {
         public Builder period(long val, TimeUnit units) {
             return period(Duration.of(val, units));
         }
+        public Builder uniqueTag(String uniqueTag) {
+            this.uniqueTag = uniqueTag;
+            return this;
+        }
         public ChefAttributeFeed build() {
             built = true;
             ChefAttributeFeed result = new ChefAttributeFeed(this);
@@ -194,12 +199,14 @@ public class ChefAttributeFeed extends AbstractFeed {
 
         Set<ChefAttributePollConfig<?>> polls = Sets.newLinkedHashSet();
         for (ChefAttributePollConfig<?> config : builder.polls) {
+            if (!config.isEnabled()) continue;
             @SuppressWarnings({ "unchecked", "rawtypes" })
             ChefAttributePollConfig<?> configCopy = new ChefAttributePollConfig(config);
             if (configCopy.getPeriod() < 0) configCopy.period(builder.period);
             polls.add(configCopy);
         }
         setConfig(POLLS, polls);
+        initUniqueTag(builder.uniqueTag, polls);
     }
 
     @Override
@@ -208,7 +215,6 @@ public class ChefAttributeFeed extends AbstractFeed {
         final Set<ChefAttributePollConfig<?>> polls = getConfig(POLLS);
         
         long minPeriod = Integer.MAX_VALUE;
-        SortedSet<String> performanceCounterNames = Sets.newTreeSet();
         for (ChefAttributePollConfig<?> config : polls) {
             minPeriod = Math.min(minPeriod, config.getPeriod());
         }

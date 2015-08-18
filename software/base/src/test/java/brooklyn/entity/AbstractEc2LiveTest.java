@@ -20,13 +20,16 @@ package brooklyn.entity;
 
 import java.util.Map;
 
+import org.apache.brooklyn.test.entity.LocalManagementContextForTests;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.config.BrooklynProperties;
-import brooklyn.location.Location;
-import brooklyn.location.jclouds.JcloudsLocationConfig;
-import brooklyn.test.entity.LocalManagementContextForTests;
+
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.location.jclouds.JcloudsLocation;
+import org.apache.brooklyn.location.jclouds.JcloudsLocationConfig;
+
 import brooklyn.util.collections.MutableMap;
 
 import com.google.common.collect.ImmutableList;
@@ -74,10 +77,11 @@ public abstract class AbstractEc2LiveTest extends BrooklynAppLiveTestSupport {
         super.setUp();
     }
 
+    // Image ids for Debian: https://wiki.debian.org/Cloud/AmazonEC2Image/Squeeze
     @Test(groups = {"Live"})
     public void test_Debian_6() throws Exception {
         // release codename "squeeze"
-        runTest(ImmutableMap.of("imageId", "us-east-1/ami-0740476e", "loginUser", "admin", "hardwareId", SMALL_HARDWARE_ID));
+        runTest(ImmutableMap.of("imageId", "us-east-1/ami-5e12dc36", "loginUser", "admin", "hardwareId", SMALL_HARDWARE_ID));
     }
 
     @Test(groups = {"Live"})
@@ -100,20 +104,27 @@ public abstract class AbstractEc2LiveTest extends BrooklynAppLiveTestSupport {
 
     @Test(groups = {"Live"})
     public void test_CentOS_6_3() throws Exception {
+        // TODO Should openIptables=true be the default?!
         // Image: {id=us-east-1/ami-a96b01c0, providerId=ami-a96b01c0, name=CentOS-6.3-x86_64-GA-EBS-02-85586466-5b6c-4495-b580-14f72b4bcf51-ami-bb9af1d2.1, location={scope=REGION, id=us-east-1, description=us-east-1, parent=aws-ec2, iso3166Codes=[US-VA]}, os={family=centos, arch=paravirtual, version=6.3, description=aws-marketplace/CentOS-6.3-x86_64-GA-EBS-02-85586466-5b6c-4495-b580-14f72b4bcf51-ami-bb9af1d2.1, is64Bit=true}, description=CentOS-6.3-x86_64-GA-EBS-02 on EBS x86_64 20130527:1219, version=bb9af1d2.1, status=AVAILABLE[available], loginUser=root, userMetadata={owner=679593333241, rootDeviceType=ebs, virtualizationType=paravirtual, hypervisor=xen}})
-        runTest(ImmutableMap.of("imageId", "us-east-1/ami-a96b01c0", "hardwareId", SMALL_HARDWARE_ID));
+        runTest(ImmutableMap.of("imageId", "us-east-1/ami-a96b01c0", "hardwareId", SMALL_HARDWARE_ID, JcloudsLocation.OPEN_IPTABLES.getName(), true));
     }
 
     @Test(groups = {"Live"})
-    public void test_CentOS_5_6() throws Exception {
-        // Image: {id=us-east-1/ami-49e32320, providerId=ami-49e32320, name=RightImage_CentOS_5.6_x64_v5.7.14, location={scope=REGION, id=us-east-1, description=us-east-1, parent=aws-ec2, iso3166Codes=[US-VA]}, os={family=centos, arch=paravirtual, version=5.6, description=rightscale-us-east/RightImage_CentOS_5.6_x64_v5.7.14.manifest.xml, is64Bit=true}, description=rightscale-us-east/RightImage_CentOS_5.6_x64_v5.7.14.manifest.xml, version=5.7.14, status=AVAILABLE[available], loginUser=root, userMetadata={owner=411009282317, rootDeviceType=instance-store, virtualizationType=paravirtual, hypervisor=xen}}
-        runTest(ImmutableMap.of("imageId", "us-east-1/ami-49e32320", "hardwareId", SMALL_HARDWARE_ID));
+    public void test_CentOS_5() throws Exception {
+        // Image: {id=us-east-1/ami-e4bffe8d, providerId=ami-e4bffe8d, name=RightImage_CentOS_5.9_x64_v12.11.4_EBS, location={scope=REGION, id=us-east-1, description=us-east-1, parent=aws-ec2, iso3166Codes=[US-VA]}, os={family=centos, arch=paravirtual, version=5.0, description=411009282317/RightImage_CentOS_5.9_x64_v12.11.4_EBS, is64Bit=true}, description=RightImage_CentOS_5.9_x64_v12.11.4_EBS, version=12.11.4_EBS, status=AVAILABLE[available], loginUser=root, userMetadata={owner=411009282317, rootDeviceType=ebs, virtualizationType=paravirtual, hypervisor=xen}}
+        runTest(ImmutableMap.of("imageId", "us-east-1/ami-e4bffe8d", "hardwareId", SMALL_HARDWARE_ID));
     }
 
     @Test(groups = {"Live"})
     public void test_Red_Hat_Enterprise_Linux_6() throws Exception {
         // Image: {id=us-east-1/ami-a35a33ca, providerId=ami-a35a33ca, name=RHEL-6.3_GA-x86_64-5-Hourly2, location={scope=REGION, id=us-east-1, description=us-east-1, parent=aws-ec2, iso3166Codes=[US-VA]}, os={family=rhel, arch=paravirtual, version=6.0, description=309956199498/RHEL-6.3_GA-x86_64-5-Hourly2, is64Bit=true}, description=309956199498/RHEL-6.3_GA-x86_64-5-Hourly2, version=Hourly2, status=AVAILABLE[available], loginUser=root, userMetadata={owner=309956199498, rootDeviceType=ebs, virtualizationType=paravirtual, hypervisor=xen}}
         runTest(ImmutableMap.of("imageId", "us-east-1/ami-a35a33ca", "hardwareId", SMALL_HARDWARE_ID, JcloudsLocationConfig.OPEN_IPTABLES.getName(), "true"));
+    }
+    
+    @Test(groups = {"Live"})
+    public void test_Suse_11sp3() throws Exception {
+        // Image: {id=us-east-1/ami-c08fcba8, providerId=ami-c08fcba8, name=suse-sles-11-sp3-v20150127-pv-ssd-x86_64, location={scope=REGION, id=us-east-1, description=us-east-1, parent=aws-ec2, iso3166Codes=[US-VA]}, os={family=suse, arch=paravirtual, version=, description=amazon/suse-sles-11-sp3-v20150127-pv-ssd-x86_64, is64Bit=true}, description=SUSE Linux Enterprise Server 11 Service Pack 3 (PV, 64-bit, SSD-Backed), version=x86_64, status=AVAILABLE[available], loginUser=root, userMetadata={owner=013907871322, rootDeviceType=ebs, virtualizationType=paravirtual, hypervisor=xen}}
+        runTest(ImmutableMap.of("imageId", "us-east-1/ami-c08fcba8", "hardwareId", SMALL_HARDWARE_ID, "loginUser", "ec2-user"));//, JcloudsLocationConfig.OPEN_IPTABLES.getName(), "true"));
     }
     
     protected void runTest(Map<String,?> flags) throws Exception {

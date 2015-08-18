@@ -23,13 +23,19 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Collection;
 import java.util.Map;
 
-import brooklyn.basic.BrooklynObject;
-import brooklyn.catalog.CatalogItem;
-import brooklyn.entity.Entity;
-import brooklyn.entity.Feed;
-import brooklyn.location.Location;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.Policy;
+import org.apache.brooklyn.api.basic.BrooklynObject;
+import org.apache.brooklyn.api.catalog.CatalogItem;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Feed;
+import org.apache.brooklyn.api.entity.rebind.RebindContext;
+import org.apache.brooklyn.api.entity.rebind.RebindExceptionHandler;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.mementos.BrooklynMementoPersister.LookupContext;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.Policy;
+
+import brooklyn.util.collections.MutableMap;
 
 import com.google.common.collect.Maps;
 
@@ -43,13 +49,18 @@ public class RebindContextImpl implements RebindContext {
     private final Map<String, CatalogItem<?, ?>> catalogItems = Maps.newLinkedHashMap();
     
     private final ClassLoader classLoader;
+    @SuppressWarnings("unused")
+    private final ManagementContext mgmt;
     private final RebindExceptionHandler exceptionHandler;
+    private final LookupContext lookupContext;
     
     private boolean allAreReadOnly = false;
     
-    public RebindContextImpl(RebindExceptionHandler exceptionHandler, ClassLoader classLoader) {
+    public RebindContextImpl(ManagementContext mgmt, RebindExceptionHandler exceptionHandler, ClassLoader classLoader) {
+        this.mgmt = checkNotNull(mgmt, "mgmt");
         this.exceptionHandler = checkNotNull(exceptionHandler, "exceptionHandler");
         this.classLoader = checkNotNull(classLoader, "classLoader");
+        this.lookupContext = new RebindContextLookupContext(mgmt, this, exceptionHandler);
     }
 
     public void registerEntity(String id, Entity entity) {
@@ -92,68 +103,76 @@ public class RebindContextImpl implements RebindContext {
         catalogItems.remove(item.getId());
     }
 
-    @Override
+    public void clearCatalogItems() {
+        catalogItems.clear();
+    }
+    
     public Entity getEntity(String id) {
         return entities.get(id);
     }
 
-    @Override
     public Location getLocation(String id) {
         return locations.get(id);
     }
     
-    @Override
     public Policy getPolicy(String id) {
         return policies.get(id);
     }
     
-    @Override
     public Enricher getEnricher(String id) {
         return enrichers.get(id);
     }
 
-    @Override
     public CatalogItem<?, ?> getCatalogItem(String id) {
         return catalogItems.get(id);
     }
 
-    @Override
     public Feed getFeed(String id) {
         return feeds.get(id);
     }
     
-    @Override
     public Class<?> loadClass(String className) throws ClassNotFoundException {
         return classLoader.loadClass(className);
     }
 
-    @Override
     public RebindExceptionHandler getExceptionHandler() {
         return exceptionHandler;
     }
 
-    protected Collection<Location> getLocations() {
+    public Collection<Location> getLocations() {
         return locations.values();
     }
     
-    protected Collection<Entity> getEntities() {
+    public Collection<Entity> getEntities() {
         return entities.values();
     }
     
-    protected Collection<Policy> getPolicies() {
+    public Collection<Policy> getPolicies() {
         return policies.values();
     }
 
-    protected Collection<Enricher> getEnrichers() {
+    public Collection<Enricher> getEnrichers() {
         return enrichers.values();
     }
     
-    protected Collection<Feed> getFeeds() {
+    public Collection<Feed> getFeeds() {
         return feeds.values();
     }
 
-    protected Collection<CatalogItem<?, ?>> getCatalogItems() {
+    public Collection<CatalogItem<?, ?>> getCatalogItems() {
         return catalogItems.values();
+    }
+    
+    @Override
+    public Map<String,BrooklynObject> getAllBrooklynObjects() {
+        MutableMap<String,BrooklynObject> result = MutableMap.of();
+        result.putAll(locations);
+        result.putAll(entities);
+        result.putAll(policies);
+        result.putAll(enrichers);
+        result.putAll(feeds);
+        result.putAll(catalogItems);
+        return result.asUnmodifiable();
     }
 
     public void setAllReadOnly() {
@@ -163,5 +182,10 @@ public class RebindContextImpl implements RebindContext {
     public boolean isReadOnly(BrooklynObject item) {
         return allAreReadOnly;
     }
-    
+
+    @Override
+    public LookupContext lookup() {
+        return lookupContext;
+    }
+
 }

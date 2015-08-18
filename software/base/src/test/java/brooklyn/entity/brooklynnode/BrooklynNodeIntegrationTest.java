@@ -31,6 +31,15 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.http.HttpTool;
+import org.apache.brooklyn.core.util.http.HttpToolResponse;
+import org.apache.brooklyn.test.EntityTestUtils;
+import org.apache.brooklyn.test.HttpTestUtils;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.HttpClient;
 import org.slf4j.Logger;
@@ -41,37 +50,33 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.config.BrooklynProperties;
-import brooklyn.entity.Effector;
-import brooklyn.entity.Entity;
+import brooklyn.entity.BrooklynAppUnitTestSupport;
 import brooklyn.entity.basic.BasicApplication;
 import brooklyn.entity.basic.BasicApplicationImpl;
 import brooklyn.entity.basic.Entities;
+import brooklyn.entity.basic.Lifecycle;
+import brooklyn.entity.basic.SoftwareProcess.StopSoftwareParameters.StopMode;
 import brooklyn.entity.brooklynnode.BrooklynNode.DeployBlueprintEffector;
 import brooklyn.entity.brooklynnode.BrooklynNode.ExistingFileBehaviour;
+import brooklyn.entity.brooklynnode.BrooklynNode.StopNodeAndKillAppsEffector;
 import brooklyn.entity.proxying.EntityProxyImpl;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.event.feed.http.JsonFunctions;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.LocalhostMachineProvisioningLocation;
-import brooklyn.location.basic.Locations;
-import brooklyn.location.basic.PortRanges;
-import brooklyn.location.basic.SshMachineLocation;
-import brooklyn.management.ManagementContext;
-import brooklyn.test.EntityTestUtils;
-import brooklyn.test.HttpTestUtils;
-import brooklyn.test.entity.TestApplication;
+
+import org.apache.brooklyn.location.basic.LocalhostMachineProvisioningLocation;
+import org.apache.brooklyn.location.basic.Locations;
+import org.apache.brooklyn.location.basic.PortRanges;
+import org.apache.brooklyn.location.basic.SshMachineLocation;
+
+import brooklyn.test.Asserts;
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.config.ConfigBag;
 import brooklyn.util.exceptions.Exceptions;
-import brooklyn.util.exceptions.PropagatedRuntimeException;
 import brooklyn.util.guava.Functionals;
-import brooklyn.util.http.HttpTool;
-import brooklyn.util.http.HttpToolResponse;
 import brooklyn.util.javalang.JavaClassNames;
 import brooklyn.util.net.Networking;
 import brooklyn.util.net.Urls;
 import brooklyn.util.os.Os;
 import brooklyn.util.text.Strings;
+import brooklyn.util.time.Duration;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
@@ -101,36 +106,40 @@ import com.google.common.io.Files;
  * rm -rf /tmp/brooklyn-`whoami`/installs/BrooklynNode*
  * </code>
  */
-public class BrooklynNodeIntegrationTest {
+public class BrooklynNodeIntegrationTest extends BrooklynAppUnitTestSupport {
 
     private static final Logger log = LoggerFactory.getLogger(BrooklynNodeIntegrationTest.class);
     
     private File pseudoBrooklynPropertiesFile;
     private File pseudoBrooklynCatalogFile;
+    private File persistenceDir;
     private LocalhostMachineProvisioningLocation loc;
     private List<LocalhostMachineProvisioningLocation> locs;
-    private TestApplication app;
-    private ManagementContext mgmt;
 
     @BeforeMethod(alwaysRun=true)
+    @Override
     public void setUp() throws Exception {
+        super.setUp();
         pseudoBrooklynPropertiesFile = Os.newTempFile("brooklynnode-test", ".properties");
         pseudoBrooklynPropertiesFile.delete();
 
         pseudoBrooklynCatalogFile = Os.newTempFile("brooklynnode-test", ".catalog");
         pseudoBrooklynCatalogFile.delete();
 
-        app = TestApplication.Factory.newManagedInstanceForTests();
-        mgmt = app.getManagementContext();
-        loc = mgmt.getLocationManager().createLocation(LocationSpec.create(LocalhostMachineProvisioningLocation.class));
+        loc = app.newLocalhostProvisioningLocation();
         locs = ImmutableList.of(loc);
     }
 
     @AfterMethod(alwaysRun=true)
+    @Override
     public void tearDown() throws Exception {
-        if (mgmt != null) Entities.destroyAll(mgmt);
-        if (pseudoBrooklynPropertiesFile != null) pseudoBrooklynPropertiesFile.delete();
-        if (pseudoBrooklynCatalogFile != null) pseudoBrooklynCatalogFile.delete();
+        try {
+            super.tearDown();
+        } finally {
+            if (pseudoBrooklynPropertiesFile != null) pseudoBrooklynPropertiesFile.delete();
+            if (pseudoBrooklynCatalogFile != null) pseudoBrooklynCatalogFile.delete();
+            if (persistenceDir != null) Os.deleteRecursively(persistenceDir);
+        }
     }
 
     protected EntitySpec<BrooklynNode> newBrooklynNodeSpecForTest() {
@@ -343,9 +352,36 @@ services:
         log.info("started "+app+" containing "+brooklynNode+" for "+JavaClassNames.niceClassAndMethod());
 
         URI webConsoleUri = brooklynNode.getAttribute(BrooklynNode.WEB_CONSOLE_URI);
+        waitForApps(webConsoleUri, 1);
         String apps = HttpTestUtils.getContent(webConsoleUri.toString()+"/v1/applications");
         List<String> appType = parseJsonList(apps, ImmutableList.of("spec", "type"), String.class);
         assertEquals(appType, ImmutableList.of(BasicApplication.class.getName()));
+    }
+
+    protected static void waitForApps(String webConsoleUri) {
+        HttpTestUtils.assertHttpStatusCodeEquals(webConsoleUri+"/v1/applications", 200, 403);
+        HttpTestUtils.assertHttpStatusCodeEventuallyEquals(webConsoleUri+"/v1/applications", 200);
+    }
+
+    // TODO Should introduce startup stages and let the client select which stage it expects to be complete
+    protected void waitForApps(final URI webConsoleUri, final int num) {
+        waitForApps(webConsoleUri.toString());
+        
+        // e.g. [{"id":"UnBqPcqg","spec":{"name":"Application (UnBqPcqg)","type":"brooklyn.entity.basic.BasicApplication","locations":["pOL4NtiW"]},"status":"RUNNING","links":{"self":"/v1/applications/UnBqPcqg","entities":"/v1/applications/UnBqPcqg/entities"}}]
+        Asserts.succeedsEventually(new Runnable() {
+            @Override
+            public void run() {
+                //Wait all apps to become managed
+                String appsContent = HttpTestUtils.getContent(webConsoleUri.toString()+"/v1/applications");
+                List<String> appIds = parseJsonList(appsContent, ImmutableList.of("id"), String.class);
+                assertEquals(appIds.size(), num);
+                
+                // and then to start
+                List<String> statuses = parseJsonList(appsContent, ImmutableList.of("status"), String.class);
+                for (String status : statuses) {
+                    assertEquals(status, Lifecycle.RUNNING.toString().toUpperCase());
+                }
+            }});
     }
 
     @Test(groups="Integration")
@@ -354,12 +390,14 @@ services:
         app.start(locs);
         log.info("started "+app+" containing "+brooklynNode+" for "+JavaClassNames.niceClassAndMethod());
         
+        // note there is also a test for this in DeployApplication
+        final URI webConsoleUri = brooklynNode.getAttribute(BrooklynNode.WEB_CONSOLE_URI);
+        waitForApps(webConsoleUri.toString());
+
         final String id = brooklynNode.invoke(BrooklynNode.DEPLOY_BLUEPRINT, ConfigBag.newInstance()
             .configure(DeployBlueprintEffector.BLUEPRINT_TYPE, BasicApplication.class.getName())
             .getAllConfig()).get();
         
-        // note there is also a test for this in DeployApplication
-        final URI webConsoleUri = brooklynNode.getAttribute(BrooklynNode.WEB_CONSOLE_URI);
         String apps = HttpTestUtils.getContent(webConsoleUri.toString()+"/v1/applications");
         List<String> appType = parseJsonList(apps, ImmutableList.of("spec", "type"), String.class);
         assertEquals(appType, ImmutableList.of(BasicApplication.class.getName()));
@@ -385,6 +423,7 @@ services:
         log.info("started "+app+" containing "+brooklynNode+" for "+JavaClassNames.niceClassAndMethod());
 
         URI webConsoleUri = brooklynNode.getAttribute(BrooklynNode.WEB_CONSOLE_URI);
+        waitForApps(webConsoleUri, 1);
 
         // Check that "mynamedloc" has been picked up from the brooklyn.properties
         String locsContent = HttpTestUtils.getContent(webConsoleUri.toString()+"/v1/locations");
@@ -452,6 +491,12 @@ services:
             } else {
                 throw e;
             }
+        } finally {
+            try {
+                brooklynNode.invoke(BrooklynNode.STOP_NODE_AND_KILL_APPS, ImmutableMap.of(StopNodeAndKillAppsEffector.TIMEOUT.getName(), Duration.THIRTY_SECONDS)).getUnchecked();
+            } catch (Exception e) {
+                log.warn("Error in stopNodeAndKillApps for "+brooklynNode+" (continuing)", e);
+            }
         }
     }
 
@@ -464,6 +509,42 @@ services:
     public void testStopButLeaveAppsEffector() throws Exception {
         createNodeAndExecStopEffector(BrooklynNode.STOP_NODE_BUT_LEAVE_APPS);
     }
+    
+    @Test(groups="Integration")
+    public void testStopAndRestartProcess() throws Exception {
+        persistenceDir = Files.createTempDir();
+        BrooklynNode brooklynNode = app.createAndManageChild(newBrooklynNodeSpecForTest()
+                .configure(BrooklynNode.EXTRA_LAUNCH_PARAMETERS, "--persist auto --persistenceDir "+persistenceDir.getAbsolutePath())
+                .configure(BrooklynNode.APP, BasicApplicationImpl.class.getName()));
+        app.start(locs);
+        log.info("started "+app+" containing "+brooklynNode+" for "+JavaClassNames.niceClassAndMethod());
+        File pidFile = new File(getDriver(brooklynNode).getPidFile());
+        URI webConsoleUri = brooklynNode.getAttribute(BrooklynNode.WEB_CONSOLE_URI);
+
+        waitForApps(webConsoleUri, 1);
+
+        // Stop just the process; will not have unmanaged entity unless machine was being terminated 
+        brooklynNode.invoke(BrooklynNode.STOP, ImmutableMap.<String, Object>of(
+                BrooklynNode.StopSoftwareParameters.STOP_MACHINE_MODE.getName(), StopMode.NEVER,
+                BrooklynNode.StopSoftwareParameters.STOP_PROCESS_MODE.getName(), StopMode.ALWAYS)).getUnchecked();
+
+        assertTrue(Entities.isManaged(brooklynNode));
+        assertFalse(isPidRunning(pidFile), "pid in "+pidFile+" still running");
+        
+        // Clear the startup app so it's not started second time, in addition to the rebind state
+        // TODO remove this once the startup app is created only if no previous persistence state
+        brooklynNode.config().set(BrooklynNode.APP, (String)null);
+        ((EntityLocal)brooklynNode).setAttribute(BrooklynNode.APP, null);
+        
+        // Restart the process; expect persisted state to have been restored, so apps still known about
+        brooklynNode.invoke(BrooklynNode.RESTART, ImmutableMap.<String, Object>of(
+                BrooklynNode.RestartSoftwareParameters.RESTART_MACHINE.getName(), "false")).getUnchecked();
+
+        waitForApps(webConsoleUri.toString());
+        String apps = HttpTestUtils.getContent(webConsoleUri.toString()+"/v1/applications");
+        List<String> appType = parseJsonList(apps, ImmutableList.of("spec", "type"), String.class);
+        assertEquals(appType, ImmutableList.of(BasicApplication.class.getName()));
+    }
 
     private void createNodeAndExecStopEffector(Effector<?> eff) throws Exception {
         BrooklynNode brooklynNode = setUpBrooklynNodeWithApp();
@@ -474,7 +555,10 @@ services:
 
         // Note can't use driver.isRunning to check shutdown; can't invoke scripts on an unmanaged entity
         EntityTestUtils.assertAttributeEquals(brooklynNode, BrooklynNode.SERVICE_UP, false);
-        assertFalse(Entities.isManaged(brooklynNode));
+        
+        // unmanaged if the machine is destroyed - ie false on localhost (this test by default), but true in the cloud 
+//        assertFalse(Entities.isManaged(brooklynNode));
+        
         assertFalse(isPidRunning(pidFile), "pid in "+pidFile+" still running");
     }
 
@@ -510,11 +594,13 @@ services:
 
         EntityTestUtils.assertAttributeEqualsEventually(brooklynNode, BrooklynNode.SERVICE_UP, true);
 
+        String baseUrl = brooklynNode.getAttribute(BrooklynNode.WEB_CONSOLE_URI).toString();
+        waitForApps(baseUrl);
+        
         final String id = brooklynNode.invoke(BrooklynNode.DEPLOY_BLUEPRINT, ConfigBag.newInstance()
                 .configure(DeployBlueprintEffector.BLUEPRINT_TYPE, BasicApplication.class.getName())
                 .getAllConfig()).get();
 
-        String baseUrl = brooklynNode.getAttribute(BrooklynNode.WEB_CONSOLE_URI).toString();
         String entityUrl = Urls.mergePaths(baseUrl, "v1/applications/", id, "entities", id);
         
         Entity mirror = brooklynNode.addChild(EntitySpec.create(BrooklynEntityMirror.class)

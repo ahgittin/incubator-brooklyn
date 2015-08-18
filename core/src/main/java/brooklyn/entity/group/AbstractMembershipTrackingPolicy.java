@@ -23,20 +23,21 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Group;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.event.SensorEventListener;
+import org.apache.brooklyn.core.policy.basic.AbstractPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import brooklyn.config.BrooklynLogging;
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
-import brooklyn.entity.Group;
 import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.DynamicGroup;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.event.Sensor;
-import brooklyn.event.SensorEvent;
-import brooklyn.event.SensorEventListener;
-import brooklyn.policy.basic.AbstractPolicy;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.javalang.JavaClassNames;
 
@@ -45,7 +46,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.reflect.TypeToken;
 
-/** abstract class which helps track membership of a group, invoking (empty) methods in this class on MEMBER{ADDED,REMOVED} events, as well as SERVICE_UP {true,false} for those members. */
+/**
+ * Abstract class which helps track membership of a group, invoking (empty) methods in this class
+ * on MEMBER{ADDED,REMOVED} events, as well as SERVICE_UP {true,false} for those members.
+ */
 public abstract class AbstractMembershipTrackingPolicy extends AbstractPolicy {
     private static final Logger LOG = LoggerFactory.getLogger(AbstractMembershipTrackingPolicy.class);
     
@@ -108,7 +112,7 @@ public abstract class AbstractMembershipTrackingPolicy extends AbstractPolicy {
     public void setGroup(Group group) {
         // relies on doReconfigureConfig to make the actual change
         LOG.warn("Deprecated use of setGroup in "+AbstractMembershipTrackingPolicy.class.getSimpleName()+"; group should be set as config");
-        setConfig(GROUP, group);
+        config().set(GROUP, group);
     }
     
     @Override
@@ -162,7 +166,8 @@ public abstract class AbstractMembershipTrackingPolicy extends AbstractPolicy {
     protected void subscribeToGroup(final Group group) {
         Preconditions.checkNotNull(group, "The group must not be null");
 
-        LOG.debug("Subscribing to group "+group+", for memberAdded, memberRemoved, and {}", getSensorsToTrack());
+        BrooklynLogging.log(LOG, BrooklynLogging.levelDebugOrTraceIfReadOnly(group),
+            "Subscribing to group "+group+", for memberAdded, memberRemoved, and {}", getSensorsToTrack());
         
         subscribe(group, DynamicGroup.MEMBER_ADDED, new SensorEventListener<Entity>() {
             @Override public void onEvent(SensorEvent<Entity> event) {
@@ -236,7 +241,8 @@ public abstract class AbstractMembershipTrackingPolicy extends AbstractPolicy {
 
     /**
      * Called when a member is removed.
-     * Note that entity change events may arrive after this event; they should typically be ignored. 
+     * Note that entity change events may arrive after this event; they should typically be ignored.
+     * The entity could already be unmanaged at this point so limited functionality is available (i.e. can't access config keys).
      */
     protected void onEntityRemoved(Entity member) {}
 }

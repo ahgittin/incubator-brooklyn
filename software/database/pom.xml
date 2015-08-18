@@ -17,21 +17,20 @@
     specific language governing permissions and limitations
     under the License.
 -->
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <artifactId>brooklyn-software-database</artifactId>
     <packaging>jar</packaging>
     <name>Brooklyn Database Software Entities</name>
     <description>
-		Brooklyn entitites for database software processes
-	</description>
+        Brooklyn entitites for database software processes
+    </description>
 
     <parent>
         <groupId>org.apache.brooklyn</groupId>
         <artifactId>brooklyn-parent</artifactId>
-        <version>0.7.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
-        <relativePath>../../pom.xml</relativePath>
+        <version>0.8.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
+        <relativePath>../../parent/pom.xml</relativePath>
     </parent>
 
     <build>
@@ -43,19 +42,38 @@
                     <configuration>
                         <excludes combine.children="append">
                             <!--
-                                Configuration artifacts (for installations) that have been downloaded from other projects, 
-                                and then templated. These are files "without any degree of creativity" from the perspective 
-                                of the Brooklyn/Apache contribution.
+                                Configuration artifacts (for installations) are based on templated defaults for 
+                                the given components. These are files "without any degree of creativity" from the
+                                perspective of the Brooklyn/Apache contribution.
                             -->
-                            <exclude>src/main/resources/brooklyn/entity/database/mariadb/my.cnf</exclude>
-                            <exclude>src/main/resources/brooklyn/entity/database/mysql/mysql.conf</exclude>
-                            <exclude>src/main/resources/brooklyn/entity/database/postgresql/postgresql.conf</exclude>
-                            <exclude>src/main/resources/brooklyn/entity/database/rubyrep/rubyrep.conf</exclude>
+                            <exclude>src/main/resources/org/apache/brooklyn/entity/database/crate/crate.yaml</exclude>
+                            <exclude>src/main/resources/org/apache/brooklyn/entity/database/mariadb/my.cnf</exclude>
+                            <exclude>src/main/resources/org/apache/brooklyn/entity/database/mysql/mysql.conf</exclude>
+                            <exclude>src/main/resources/org/apache/brooklyn/entity/database/mysql/mysql_master.conf</exclude>
+                            <exclude>src/main/resources/org/apache/brooklyn/entity/database/mysql/mysql_slave.conf</exclude>
+                            <exclude>src/main/resources/org/apache/brooklyn/entity/database/postgresql/postgresql.conf</exclude>
+                            <exclude>src/main/resources/org/apache/brooklyn/entity/database/rubyrep/rubyrep.conf</exclude>
+                            <exclude>src/main/resources/org/apache/brooklyn/entity/database/mssql/ConfigurationFile.ini</exclude>
+                            <exclude>src/main/resources/org/apache/brooklyn/entity/database/mssql/mssql.yaml</exclude>
                         </excludes>
                     </configuration>
                 </plugin>
             </plugins>
         </pluginManagement>
+        <plugins>
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <inherited>true</inherited>
+                <executions>
+                    <execution>
+                        <id>default-testCompile</id>
+                        <configuration>
+                            <compilerId>groovy-eclipse-compiler</compilerId>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
     </build>
     
     <dependencies>
@@ -87,10 +105,6 @@
         <dependency>
             <groupId>org.codehaus.groovy</groupId>
             <artifactId>groovy-all</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.beust</groupId>
-            <artifactId>jcommander</artifactId>
         </dependency>
         <dependency>
             <groupId>com.google.guava</groupId>

@@ -31,18 +31,21 @@ import java.util.Map;
 
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.brooklynnode.BrooklynNode.ExistingFileBehaviour;
+import brooklyn.entity.drivers.downloads.DownloadSubstituters;
 import brooklyn.entity.java.JavaSoftwareProcessSshDriver;
 import brooklyn.entity.software.SshEffectorTasks;
-import brooklyn.location.basic.SshMachineLocation;
+
+import org.apache.brooklyn.core.util.file.ArchiveBuilder;
+import org.apache.brooklyn.core.util.file.ArchiveUtils;
+import org.apache.brooklyn.core.util.internal.ssh.SshTool;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.location.basic.SshMachineLocation;
+
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.file.ArchiveBuilder;
-import brooklyn.util.file.ArchiveUtils;
-import brooklyn.util.internal.ssh.SshTool;
 import brooklyn.util.net.Networking;
 import brooklyn.util.net.Urls;
 import brooklyn.util.os.Os;
 import brooklyn.util.ssh.BashCommands;
-import brooklyn.util.task.DynamicTasks;
 import brooklyn.util.text.Identifiers;
 import brooklyn.util.text.Strings;
 
@@ -76,24 +79,58 @@ public class BrooklynNodeSshDriver extends JavaSoftwareProcessSshDriver implemen
     
     @Override
     protected String getInstallLabelExtraSalt() {
-        return Identifiers.makeIdFromHash(Objects.hashCode(entity.getConfig(BrooklynNode.DOWNLOAD_URL), entity.getConfig(BrooklynNode.DISTRO_UPLOAD_URL)));
+        String downloadUrl = entity.getConfig(BrooklynNode.DOWNLOAD_URL);
+        String uploadUrl = entity.getConfig(BrooklynNode.DISTRO_UPLOAD_URL);
+        if (Objects.equal(downloadUrl, BrooklynNode.DOWNLOAD_URL.getConfigKey().getDefaultValue()) &&
+                Objects.equal(uploadUrl, BrooklynNode.DISTRO_UPLOAD_URL.getDefaultValue())) {
+            // if both are at the default value, then no salt
+            return null;
+        }
+        return Identifiers.makeIdFromHash(Objects.hashCode(downloadUrl, uploadUrl));
     }
 
     @Override
     public void preInstall() {
         resolver = Entities.newDownloader(this);
         String subpath = entity.getConfig(BrooklynNode.SUBPATH_IN_ARCHIVE);
-        if (Strings.isBlank(subpath)) subpath = format("brooklyn-%s", getVersion());
+        if (subpath==null) {
+            // assume the dir name is `basename-VERSION` where download link is `basename-VERSION-dist.tar.gz`
+            String uploadUrl = entity.getConfig(BrooklynNode.DISTRO_UPLOAD_URL);
+            String origDownloadName = uploadUrl;
+            if (origDownloadName==null) 
+                origDownloadName = entity.getAttribute(BrooklynNode.DOWNLOAD_URL);
+            if (origDownloadName!=null) {
+                // BasicDownloadResolver makes it crazy hard to get the template-evaluated value of DOWNLOAD_URL
+                origDownloadName = DownloadSubstituters.substitute(origDownloadName, DownloadSubstituters.getBasicEntitySubstitutions(this));
+                origDownloadName = Urls.decode(origDownloadName);
+                origDownloadName = Urls.getBasename(origDownloadName);
+                String downloadName = origDownloadName;
+                downloadName = Strings.removeFromEnd(downloadName, ".tar.gz");
+                downloadName = Strings.removeFromEnd(downloadName, ".tgz");
+                downloadName = Strings.removeFromEnd(downloadName, ".zip");
+                if (!downloadName.equals(origDownloadName)) {
+                    downloadName = Strings.removeFromEnd(downloadName, "-dist");
+                    subpath = downloadName;
+                }
+            }
+        }
+        if (subpath==null) subpath = format("brooklyn-dist-%s", getVersion());
         setExpandedInstallDir(Os.mergePaths(getInstallDir(), resolver.getUnpackedDirectoryName(subpath)));
     }
 
+    @Override
+    public void clearInstallDir() {
+        super.setInstallDir(null);
+        super.setExpandedInstallDir(null);
+    }
+    
     @Override
     public void install() {
         String uploadUrl = entity.getConfig(BrooklynNode.DISTRO_UPLOAD_URL);
         
         // Need to explicitly give file, because for snapshot URLs you don't get a clean filename from the URL.
-        // This filename is used to generate the first URL to try: 
-        // file://$HOME/.brooklyn/repository/BrooklynNode/0.6.0-SNAPSHOT/brooklyn-0.6.0-SNAPSHOT-dist.tar.gz
+        // This filename is used to generate the first URL to try: [BROOKLYN_VERSION_BELOW]
+        // file://$HOME/.brooklyn/repository/BrooklynNode/0.8.0-SNAPSHOT/brooklynnode-0.8.0-snapshot.tar.gz
         // (DOWNLOAD_URL overrides this and has a default which comes from maven)
         List<String> urls = resolver.getTargets();
         String saveAs = resolver.getFilename();
@@ -224,13 +261,14 @@ public class BrooklynNodeSshDriver extends JavaSoftwareProcessSshDriver implemen
         }
         
         String cmd = entity.getConfig(BrooklynNode.EXTRA_CUSTOMIZATION_SCRIPT);
-        if (!Strings.isBlank(cmd)) {
+        if (Strings.isNonBlank(cmd)) {
             DynamicTasks.queueIfPossible( SshEffectorTasks.ssh(cmd).summary("Bespoke BrooklynNode customization script")
                 .requiringExitCodeZero() )
                 .orSubmitAndBlock(getEntity());
         }
     }
 
+    @SuppressWarnings("deprecation")
     @Override
     public void launch() {
         String app = getEntity().getAttribute(BrooklynNode.APP);
@@ -282,8 +320,8 @@ public class BrooklynNodeSshDriver extends JavaSoftwareProcessSshDriver implemen
         if (getEntity().getAttribute(BrooklynNode.NO_WEB_CONSOLE_AUTHENTICATION)) {
             cmd += " --noConsoleSecurity";
         }
-        if (getEntity().getConfig(BrooklynNode.NO_SHUTDOWN_ON_EXIT)) {
-            cmd += " --noShutdownOnExit ";
+        if (Strings.isNonBlank(getEntity().getConfig(BrooklynNode.EXTRA_LAUNCH_PARAMETERS))) {
+            cmd += " "+getEntity().getConfig(BrooklynNode.EXTRA_LAUNCH_PARAMETERS);
         }
         cmd += format(" >> %s/console 2>&1 </dev/null &", getRunDir());
         

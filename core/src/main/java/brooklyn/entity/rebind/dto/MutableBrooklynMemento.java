@@ -24,16 +24,15 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
 
+import org.apache.brooklyn.api.mementos.BrooklynMemento;
+import org.apache.brooklyn.api.mementos.CatalogItemMemento;
+import org.apache.brooklyn.api.mementos.EnricherMemento;
+import org.apache.brooklyn.api.mementos.EntityMemento;
+import org.apache.brooklyn.api.mementos.FeedMemento;
+import org.apache.brooklyn.api.mementos.LocationMemento;
+import org.apache.brooklyn.api.mementos.PolicyMemento;
 import org.codehaus.jackson.annotate.JsonAutoDetect;
 import org.codehaus.jackson.annotate.JsonAutoDetect.Visibility;
-
-import brooklyn.mementos.BrooklynMemento;
-import brooklyn.mementos.CatalogItemMemento;
-import brooklyn.mementos.EnricherMemento;
-import brooklyn.mementos.EntityMemento;
-import brooklyn.mementos.FeedMemento;
-import brooklyn.mementos.LocationMemento;
-import brooklyn.mementos.PolicyMemento;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;

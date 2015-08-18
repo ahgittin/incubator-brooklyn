@@ -21,21 +21,23 @@ package brooklyn.event.basic;
 import java.util.Collection;
 import java.util.Iterator;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.location.MachineProvisioningLocation;
+import org.apache.brooklyn.api.location.PortRange;
+import org.apache.brooklyn.api.location.PortSupplier;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.core.internal.BrooklynInitialization;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.BrooklynConfigKeys;
-import brooklyn.event.Sensor;
-import brooklyn.location.Location;
-import brooklyn.location.MachineProvisioningLocation;
-import brooklyn.location.PortRange;
-import brooklyn.location.PortSupplier;
-import brooklyn.location.basic.Locations;
-import brooklyn.location.basic.PortRanges;
-import brooklyn.management.ManagementContext;
-import brooklyn.util.flags.TypeCoercions;
+
+import org.apache.brooklyn.location.basic.Locations;
+
 import brooklyn.util.guava.Maybe;
 
 import com.google.common.base.Optional;
@@ -55,9 +57,7 @@ public class PortAttributeSensorAndConfigKey extends AttributeSensorAndConfigKey
 
     public static final Logger LOG = LoggerFactory.getLogger(PortAttributeSensorAndConfigKey.class);
 
-    static {
-        PortRanges.init(); // Ensure type coercions are registered
-    }
+    static { BrooklynInitialization.initAll(); }
 
     public PortAttributeSensorAndConfigKey(String name) {
         this(name, name, null);
@@ -93,8 +93,12 @@ public class PortAttributeSensorAndConfigKey extends AttributeSensorAndConfigKey
             }
             if (lo.isPresent()) {
                 Location l = lo.get();
-                Boolean skip = Optional.fromNullable(entity.getConfig(BrooklynConfigKeys.SKIP_INSTALLATION)).or(false);
-                Boolean started = Optional.fromNullable(entity.getConfig(BrooklynConfigKeys.ENTITY_STARTED)).or(false);
+                Optional<Boolean> locationRunning = Optional.fromNullable(l.getConfig(BrooklynConfigKeys.SKIP_ENTITY_START_IF_RUNNING));
+                Optional<Boolean> entityRunning = Optional.fromNullable(entity.getConfig(BrooklynConfigKeys.SKIP_ENTITY_START_IF_RUNNING));
+                Optional<Boolean> locationInstalled = Optional.fromNullable(l.getConfig(BrooklynConfigKeys.SKIP_ENTITY_INSTALLATION));
+                Optional<Boolean> entityInstalled = Optional.fromNullable(entity.getConfig(BrooklynConfigKeys.SKIP_ENTITY_INSTALLATION));
+                Optional<Boolean> entityStarted = Optional.fromNullable(entity.getConfig(BrooklynConfigKeys.SKIP_ENTITY_START));
+                boolean skipCheck = locationRunning.or(entityRunning).or(locationInstalled).or(entityInstalled).or(entityStarted).or(false);
                 if (l instanceof PortSupplier) {
                     int p = ((PortSupplier) l).obtainPort(value);
                     if (p != -1) {
@@ -102,7 +106,7 @@ public class PortAttributeSensorAndConfigKey extends AttributeSensorAndConfigKey
                         return p;
                     }
                     // If we are not skipping install or already started, fail now
-                    if (!(skip || started)) {
+                    if (!skipCheck) {
                         int rangeSize = Iterables.size(value);
                         if (rangeSize == 0) {
                             LOG.warn("{}: no port available for {} (empty range {})", new Object[] { entity, getName(), value });

@@ -20,31 +20,30 @@ package brooklyn.entity.basic;
 
 import java.util.Collection;
 import java.util.Map;
-import java.util.Set;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import brooklyn.basic.BrooklynObject.TagSupport;
+import org.apache.brooklyn.api.basic.BrooklynObject.TagSupport;
+import org.apache.brooklyn.api.entity.Application;
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.EntityType;
+import org.apache.brooklyn.api.entity.Group;
+import org.apache.brooklyn.api.entity.rebind.RebindSupport;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.management.ExecutionContext;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.mementos.EntityMemento;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.core.management.internal.EntityManagementSupport;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+
 import brooklyn.config.ConfigKey;
 import brooklyn.config.ConfigKey.HasConfigKey;
-import brooklyn.entity.Application;
-import brooklyn.entity.Effector;
-import brooklyn.entity.Entity;
-import brooklyn.entity.EntityType;
-import brooklyn.entity.Group;
 import brooklyn.entity.basic.EntityInternal.FeedSupport;
 import brooklyn.entity.proxying.EntityProxyImpl;
-import brooklyn.entity.rebind.RebindSupport;
-import brooklyn.event.AttributeSensor;
-import brooklyn.location.Location;
-import brooklyn.management.ExecutionContext;
-import brooklyn.management.ManagementContext;
-import brooklyn.management.internal.EntityManagementSupport;
-import brooklyn.mementos.EntityMemento;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.Policy;
-import brooklyn.util.config.ConfigBag;
 import brooklyn.util.guava.Maybe;
 
 import com.google.common.annotations.Beta;
@@ -60,6 +59,8 @@ import com.google.common.annotations.Beta;
 @Beta
 public interface EntityTransientCopyInternal {
 
+    // TODO For feeds() and config(), need to ensure mutator methods on returned object are not invoked.
+    
     // from Entity
     
     String getId();
@@ -80,8 +81,8 @@ public interface EntityTransientCopyInternal {
     <T> T getConfig(HasConfigKey<T> key);
     Maybe<Object> getConfigRaw(ConfigKey<?> key, boolean includeInherited);
     Maybe<Object> getConfigRaw(HasConfigKey<?> key, boolean includeInherited);
-    @Deprecated Set<Object> getTags();
-    @Deprecated boolean containsTag(@Nonnull Object tag);
+    TagSupport tags();
+    String getCatalogItemId();
 
     
     // from entity local
@@ -92,20 +93,29 @@ public interface EntityTransientCopyInternal {
     
     // from EntityInternal:
     
-    EntityConfigMap getConfigMap();
-    Map<ConfigKey<?>,Object> getAllConfig();
+    @Deprecated EntityConfigMap getConfigMap();
+    @Deprecated Map<ConfigKey<?>,Object> getAllConfig();
     // for rebind mainly:
-    ConfigBag getAllConfigBag();
-    ConfigBag getLocalConfigBag();
+    @Deprecated ConfigBag getAllConfigBag();
+    @Deprecated ConfigBag getLocalConfigBag();
     @SuppressWarnings("rawtypes")
     Map<AttributeSensor, Object> getAllAttributes();
     EntityManagementSupport getManagementSupport();
     ManagementContext getManagementContext();
     Effector<?> getEffector(String effectorName);
-    FeedSupport getFeedSupport();
-    TagSupport getTagSupport();
+    @Deprecated FeedSupport getFeedSupport();
+    FeedSupport feeds();
     RebindSupport<EntityMemento> getRebindSupport();
     // for REST calls on read-only entities which want to resolve values
     ExecutionContext getExecutionContext();
+    void setCatalogItemId(String id);
     
+    /** more methods, but which are only on selected entities */
+    public interface SpecialEntityTransientCopyInternal {
+        // from Group
+        Collection<Entity> getMembers();
+        boolean hasMember(Entity member);
+        Integer getCurrentSize();
+    }
+
 }

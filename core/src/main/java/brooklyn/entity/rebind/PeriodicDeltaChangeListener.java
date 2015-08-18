@@ -25,40 +25,46 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.basic.BrooklynObject;
-import brooklyn.catalog.CatalogItem;
-import brooklyn.entity.Entity;
-import brooklyn.entity.Feed;
+import org.apache.brooklyn.basic.BrooklynObjectInternal;
+
+import org.apache.brooklyn.api.basic.BrooklynObject;
+import org.apache.brooklyn.api.catalog.CatalogItem;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Feed;
+import org.apache.brooklyn.api.entity.rebind.BrooklynObjectType;
+import org.apache.brooklyn.api.entity.rebind.ChangeListener;
+import org.apache.brooklyn.api.entity.rebind.PersistenceExceptionHandler;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.management.ExecutionContext;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.api.mementos.BrooklynMementoPersister;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.core.internal.BrooklynFeatureEnablement;
+import org.apache.brooklyn.core.util.task.ScheduledTask;
+import org.apache.brooklyn.core.util.task.Tasks;
+
 import brooklyn.entity.basic.BrooklynTaskTags;
 import brooklyn.entity.basic.EntityInternal;
-import brooklyn.internal.BrooklynFeatureEnablement;
-import brooklyn.location.Location;
-import brooklyn.location.basic.LocationInternal;
-import brooklyn.management.ExecutionContext;
-import brooklyn.management.ExecutionManager;
-import brooklyn.management.Task;
-import brooklyn.mementos.BrooklynMementoPersister;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.Policy;
+import brooklyn.entity.rebind.persister.BrooklynPersistenceUtils;
+import brooklyn.entity.rebind.persister.PersistenceActivityMetrics;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.collections.MutableSet;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.exceptions.RuntimeInterruptedException;
-import brooklyn.util.task.BasicExecutionContext;
-import brooklyn.util.task.ScheduledTask;
-import brooklyn.util.task.Tasks;
+import brooklyn.util.repeat.Repeater;
 import brooklyn.util.time.CountdownTimer;
 import brooklyn.util.time.Duration;
-import brooklyn.util.time.Time;
 
-import com.google.api.client.util.Lists;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Stopwatch;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 /**
@@ -79,18 +85,19 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
     private static final Logger LOG = LoggerFactory.getLogger(PeriodicDeltaChangeListener.class);
 
     private static class DeltaCollector {
-        Set<Location> locations = Sets.newLinkedHashSet();
-        Set<Entity> entities = Sets.newLinkedHashSet();
-        Set<Policy> policies = Sets.newLinkedHashSet();
-        Set<Enricher> enrichers = Sets.newLinkedHashSet();
-        Set<Feed> feeds = Sets.newLinkedHashSet();
-        Set<CatalogItem<?, ?>> catalogItems = Sets.newLinkedHashSet();
-        Set<String> removedLocationIds = Sets.newLinkedHashSet();
-        Set<String> removedEntityIds = Sets.newLinkedHashSet();
-        Set<String> removedPolicyIds = Sets.newLinkedHashSet();
-        Set<String> removedEnricherIds = Sets.newLinkedHashSet();
-        Set<String> removedFeedIds = Sets.newLinkedHashSet();
-        Set<String> removedCatalogItemIds = Sets.newLinkedHashSet();
+        private Set<Location> locations = Sets.newLinkedHashSet();
+        private Set<Entity> entities = Sets.newLinkedHashSet();
+        private Set<Policy> policies = Sets.newLinkedHashSet();
+        private Set<Enricher> enrichers = Sets.newLinkedHashSet();
+        private Set<Feed> feeds = Sets.newLinkedHashSet();
+        private Set<CatalogItem<?, ?>> catalogItems = Sets.newLinkedHashSet();
+        
+        private Set<String> removedLocationIds = Sets.newLinkedHashSet();
+        private Set<String> removedEntityIds = Sets.newLinkedHashSet();
+        private Set<String> removedPolicyIds = Sets.newLinkedHashSet();
+        private Set<String> removedEnricherIds = Sets.newLinkedHashSet();
+        private Set<String> removedFeedIds = Sets.newLinkedHashSet();
+        private Set<String> removedCatalogItemIds = Sets.newLinkedHashSet();
 
         public boolean isEmpty() {
             return locations.isEmpty() && entities.isEmpty() && policies.isEmpty() && 
@@ -100,6 +107,59 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
                     removedEnricherIds.isEmpty() && removedFeedIds.isEmpty() &&
                     removedCatalogItemIds.isEmpty();
         }
+        
+        public void add(BrooklynObject instance) {
+            BrooklynObjectType type = BrooklynObjectType.of(instance);
+            getUnsafeCollectionOfType(type).add(instance);
+            if (type==BrooklynObjectType.CATALOG_ITEM) {
+                removedCatalogItemIds.remove(instance.getId());
+            }
+        }
+        
+        public void addIfNotRemoved(BrooklynObject instance) {
+            BrooklynObjectType type = BrooklynObjectType.of(instance);
+            if (!getRemovedIdsOfType(type).contains(instance.getId())) {
+                getUnsafeCollectionOfType(type).add(instance);
+            }
+        }
+
+        public void remove(BrooklynObject instance) {
+            BrooklynObjectType type = BrooklynObjectType.of(instance);
+            getUnsafeCollectionOfType(type).remove(instance);
+            getRemovedIdsOfType(type).add(instance.getId());
+        }
+
+        @SuppressWarnings("unchecked")
+        private Set<BrooklynObject> getUnsafeCollectionOfType(BrooklynObjectType type) {
+            return (Set<BrooklynObject>)getCollectionOfType(type);
+        }
+
+        private Set<? extends BrooklynObject> getCollectionOfType(BrooklynObjectType type) {
+            switch (type) {
+            case ENTITY: return entities;
+            case LOCATION: return locations;
+            case ENRICHER: return enrichers;
+            case FEED: return feeds;
+            case POLICY: return policies;
+            case CATALOG_ITEM: return catalogItems;
+            case UNKNOWN: break;
+            }
+            throw new IllegalStateException("No collection for type "+type);
+        }
+        
+        private Set<String> getRemovedIdsOfType(BrooklynObjectType type) {
+            switch (type) {
+            case ENTITY: return removedEntityIds;
+            case LOCATION: return removedLocationIds;
+            case ENRICHER: return removedEnricherIds;
+            case FEED: return removedFeedIds;
+            case POLICY: return removedPolicyIds;
+            case CATALOG_ITEM: return removedCatalogItemIds;
+            case UNKNOWN: break;
+            }
+            throw new IllegalStateException("No removed ids for type "+type);
+        }
+
     }
     
     private final ExecutionContext executionContext;
@@ -109,14 +169,11 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
     private final PersistenceExceptionHandler exceptionHandler;
     
     private final Duration period;
-    
-    private final AtomicLong writeCount = new AtomicLong();
-    
+        
     private DeltaCollector deltaCollector = new DeltaCollector();
 
-    private volatile boolean running = false;
-
-    private volatile boolean stopped = false;
+    private enum ListenerState { INIT, RUNNING, STOPPING, STOPPED } 
+    private volatile ListenerState state = ListenerState.INIT;
 
     private volatile ScheduledTask scheduledTask;
 
@@ -125,18 +182,16 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
     private final boolean persistFeedsEnabled;
     
     private final Semaphore persistingMutex = new Semaphore(1);
-    private final Object startMutex = new Object();
+    private final Object startStopMutex = new Object();
+    private final AtomicInteger writeCount = new AtomicInteger(0);
+
+    private PersistenceActivityMetrics metrics;
     
-    /** @deprecated since 0.7.0 pass in an {@link ExecutionContext} and a {@link Duration} */
-    @Deprecated
-    public PeriodicDeltaChangeListener(ExecutionManager executionManager, BrooklynMementoPersister persister, PersistenceExceptionHandler exceptionHandler, long periodMillis) {
-        this(new BasicExecutionContext(executionManager), persister, exceptionHandler, Duration.of(periodMillis, TimeUnit.MILLISECONDS));
-    }
-    
-    public PeriodicDeltaChangeListener(ExecutionContext executionContext, BrooklynMementoPersister persister, PersistenceExceptionHandler exceptionHandler, Duration period) {
+    public PeriodicDeltaChangeListener(ExecutionContext executionContext, BrooklynMementoPersister persister, PersistenceExceptionHandler exceptionHandler, PersistenceActivityMetrics metrics, Duration period) {
         this.executionContext = executionContext;
         this.persister = persister;
         this.exceptionHandler = exceptionHandler;
+        this.metrics = metrics;
         this.period = period;
         
         this.persistPoliciesEnabled = BrooklynFeatureEnablement.isEnabled(BrooklynFeatureEnablement.FEATURE_POLICY_PERSISTENCE_PROPERTY);
@@ -146,34 +201,19 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
     
     @SuppressWarnings("unchecked")
     public void start() {
-        synchronized (startMutex) {
-            if (running || (scheduledTask!=null && !scheduledTask.isDone())) {
+        synchronized (startStopMutex) {
+            if (state==ListenerState.RUNNING || (scheduledTask!=null && !scheduledTask.isDone())) {
                 LOG.warn("Request to start "+this+" when already running - "+scheduledTask+"; ignoring");
                 return;
             }
-            stopped = false;
-            running = true;
+            state = ListenerState.RUNNING;
 
             Callable<Task<?>> taskFactory = new Callable<Task<?>>() {
                 @Override public Task<Void> call() {
                     return Tasks.<Void>builder().dynamic(false).name("periodic-persister").body(new Callable<Void>() {
                         public Void call() {
-                            try {
-                                persistNow();
-                                return null;
-                            } catch (RuntimeInterruptedException e) {
-                                LOG.debug("Interrupted persisting change-delta (rethrowing)", e);
-                                Thread.currentThread().interrupt();
-                                return null;
-                            } catch (Exception e) {
-                                // Don't rethrow: the behaviour of executionManager is different from a scheduledExecutorService,
-                                // if we throw an exception, then our task will never get executed again
-                                LOG.warn("Problem persisting change-delta", e);
-                                return null;
-                            } catch (Throwable t) {
-                                LOG.warn("Problem persisting change-delta (rethrowing)", t);
-                                throw Exceptions.propagate(t);
-                            }
+                            persistNowSafely();
+                            return null;
                         }}).build();
                 }
             };
@@ -187,133 +227,159 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
         stop(Duration.TEN_SECONDS, Duration.ONE_SECOND);
     }
     void stop(Duration timeout, Duration graceTimeoutForSubsequentOperations) {
-        stopped = true;
-        running = false;
-        
-        if (scheduledTask != null) {
-            CountdownTimer expiry = timeout.countdownTimer();
-            scheduledTask.cancel(false);
+        synchronized (startStopMutex) {
+            state = ListenerState.STOPPING;
             try {
-                waitForPendingComplete(expiry.getDurationRemaining().minimum(Duration.ZERO).add(graceTimeoutForSubsequentOperations));
-            } catch (Exception e) {
-                throw Exceptions.propagate(e);
-            }
-            scheduledTask.blockUntilEnded(expiry.getDurationRemaining().minimum(Duration.ZERO).add(graceTimeoutForSubsequentOperations));
-            scheduledTask.cancel(true);
-            boolean reallyEnded = Tasks.blockUntilInternalTasksEnded(scheduledTask, expiry.getDurationRemaining().minimum(Duration.ZERO).add(graceTimeoutForSubsequentOperations));
-            if (!reallyEnded) {
-                LOG.warn("Persistence tasks took too long to complete when stopping persistence (ignoring): "+scheduledTask);
-            }
-            scheduledTask = null;
-        }
 
+                if (scheduledTask != null) {
+                    CountdownTimer expiry = timeout.countdownTimer();
+                    try {
+                        scheduledTask.cancel(false);  
+                        waitForPendingComplete(expiry.getDurationRemaining().lowerBound(Duration.ZERO).add(graceTimeoutForSubsequentOperations), true);
+                    } catch (Exception e) {
+                        throw Exceptions.propagate(e);
+                    }
+                    scheduledTask.blockUntilEnded(expiry.getDurationRemaining().lowerBound(Duration.ZERO).add(graceTimeoutForSubsequentOperations));
+                    scheduledTask.cancel(true);
+                    boolean reallyEnded = Tasks.blockUntilInternalTasksEnded(scheduledTask, expiry.getDurationRemaining().lowerBound(Duration.ZERO).add(graceTimeoutForSubsequentOperations));
+                    if (!reallyEnded) {
+                        LOG.warn("Persistence tasks took too long to terminate, when stopping persistence, although pending changes were persisted (ignoring): "+scheduledTask);
+                    }
+                    scheduledTask = null;
+                }
 
-        // Discard all state that was waiting to be persisted
-        synchronized (this) {
-            deltaCollector = new DeltaCollector();
+                // Discard all state that was waiting to be persisted
+                synchronized (this) {
+                    deltaCollector = new DeltaCollector();
+                }
+            } finally {
+                state = ListenerState.STOPPED;
+            }
         }
     }
     
-    /**
-     * This method must only be used for testing. If required in production, then revisit implementation!
-     * @deprecated since 0.7.0, use {@link #waitForPendingComplete(Duration)}
-     */
+    /** Waits for any in-progress writes to be completed then for or any unwritten data to be written. */
     @VisibleForTesting
-    public void waitForPendingComplete(long timeout, TimeUnit unit) throws InterruptedException, TimeoutException {
-        waitForPendingComplete(Duration.of(timeout, unit));
-    }
-    @VisibleForTesting
-    public void waitForPendingComplete(Duration timeout) throws InterruptedException, TimeoutException {
-        // Every time we finish writing, we increment a counter. We note the current val, and then
-        // wait until we can guarantee that a complete additional write has been done. Not sufficient
-        // to wait for `writeCount > origWriteCount` because we might have read the value when almost 
-        // finished a write.
+    public void waitForPendingComplete(Duration timeout, boolean canTrigger) throws InterruptedException, TimeoutException {
+        if (!isActive() && state != ListenerState.STOPPING) return;
         
-        long startTime = System.currentTimeMillis();
-        long maxEndtime = timeout.isPositive() ? startTime + timeout.toMillisecondsRoundingUp() : Long.MAX_VALUE;
-        long origWriteCount = writeCount.get();
-        while (true) {
-            if (!isActive()) {
-                return; // no pending activity;
-            } else if (writeCount.get() > (origWriteCount+1)) {
-                return;
+        CountdownTimer timer = timeout.isPositive() ? CountdownTimer.newInstanceStarted(timeout) : CountdownTimer.newInstancePaused(Duration.PRACTICALLY_FOREVER);
+        Integer targetWriteCount = null;
+        // wait for mutex, so we aren't tricked by an in-progress who has already recycled the collector
+        if (persistingMutex.tryAcquire(timer.getDurationRemaining().toMilliseconds(), TimeUnit.MILLISECONDS)) {
+            try {
+                // now no one else is writing
+                if (!deltaCollector.isEmpty()) {
+                    if (canTrigger) {
+                        // but there is data that needs to be written
+                        persistNowSafely(true);
+                    } else {
+                        targetWriteCount = writeCount.get()+1;
+                    }
+                }
+            } finally {
+                persistingMutex.release();
             }
-            
-            if (System.currentTimeMillis() > maxEndtime) {
-                throw new TimeoutException("Timeout waiting for pending complete of rebind-periodic-delta, after "+Time.makeTimeStringRounded(timeout));
+            if (targetWriteCount!=null) {
+                while (writeCount.get() <= targetWriteCount) {
+                    Duration left = timer.getDurationRemaining();
+                    if (left.isPositive()) {
+                        synchronized(writeCount) {
+                            writeCount.wait(left.lowerBound(Repeater.DEFAULT_REAL_QUICK_PERIOD).toMilliseconds());
+                        }
+                    } else {
+                        throw new TimeoutException("Timeout waiting for independent write of rebind-periodic-delta, after "+timer.getDurationElapsed());
+                    }
+                }
             }
-            Thread.sleep(1);
+        } else {
+            // someone else has been writing for the entire time 
+            throw new TimeoutException("Timeout waiting for completion of in-progress write of rebind-periodic-delta, after "+timer.getDurationElapsed());
         }
     }
 
     /**
-     * Indicates whether to persist things now. Even when not active, we will still store what needs
-     * to be persisted unless {@link #isStopped()}.
+     * Indicates whether persistence is active. 
+     * Even when not active, changes will still be tracked unless {@link #isStopped()}.
      */
     private boolean isActive() {
-        return running && persister != null && !isStopped();
+        return state == ListenerState.RUNNING && persister != null && !isStopped();
     }
 
     /**
-     * Whether we have been stopped, in which case will not persist or store anything.
+     * Whether we have been stopped, ie are stopping are or fully stopped,
+     * in which case will not persist or store anything
+     * (except for a final internal persistence called while STOPPING.) 
      */
     private boolean isStopped() {
-        return stopped || executionContext.isShutdown();
+        return state == ListenerState.STOPPING || state == ListenerState.STOPPED || executionContext.isShutdown();
     }
     
     private void addReferencedObjects(DeltaCollector deltaCollector) {
-        Set<Location> referencedLocations = Sets.newLinkedHashSet();
-        Set<Policy> referencedPolicies = Sets.newLinkedHashSet();
-        Set<Enricher> referencedEnrichers = Sets.newLinkedHashSet();
-        Set<Feed> referencedFeeds = Sets.newLinkedHashSet();
+        Set<BrooklynObject> referencedObjects = Sets.newLinkedHashSet();
         
+        // collect references
         for (Entity entity : deltaCollector.entities) {
             // FIXME How to let the policy/location tell us about changes? Don't do this every time!
             for (Location location : entity.getLocations()) {
                 Collection<Location> findLocationsInHierarchy = TreeUtils.findLocationsInHierarchy(location);
-                referencedLocations.addAll(findLocationsInHierarchy);
+                referencedObjects.addAll(findLocationsInHierarchy);
             }
             if (persistPoliciesEnabled) {
-                referencedPolicies.addAll(entity.getPolicies());
+                referencedObjects.addAll(entity.getPolicies());
             }
             if (persistEnrichersEnabled) {
-                referencedEnrichers.addAll(entity.getEnrichers());
+                referencedObjects.addAll(entity.getEnrichers());
             }
             if (persistFeedsEnabled) {
-                referencedFeeds.addAll(((EntityInternal)entity).feeds().getFeeds());
+                referencedObjects.addAll(((EntityInternal)entity).feeds().getFeeds());
             }
         }
         
-        for (Location loc : referencedLocations) {
-            if (!deltaCollector.removedLocationIds.contains(loc.getId())) {
-                deltaCollector.locations.add(loc);
-            }
-        }
-        for (Policy pol : referencedPolicies) {
-            if (!deltaCollector.removedPolicyIds.contains(pol.getId())) {
-                deltaCollector.policies.add(pol);
-            }
-        }
-        for (Enricher enr : referencedEnrichers) {
-            if (!deltaCollector.removedEnricherIds.contains(enr.getId())) {
-                deltaCollector.enrichers.add(enr);
-            }
-        }
-        for (Feed feed : referencedFeeds) {
-            if (!deltaCollector.removedFeedIds.contains(feed.getId())) {
-                deltaCollector.feeds.add(feed);
-            }
+        for (BrooklynObject instance : referencedObjects) {
+            deltaCollector.addIfNotRemoved(instance);
         }
     }
     
     @VisibleForTesting
-    public void persistNow() {
-        if (!isActive()) {
+    public boolean persistNowSafely() {
+        return persistNowSafely(false);
+    }
+    
+    private boolean persistNowSafely(boolean alreadyHasMutex) {
+        Stopwatch timer = Stopwatch.createStarted();
+        try {
+            persistNowInternal(alreadyHasMutex);
+            metrics.noteSuccess(Duration.of(timer));
+            return true;
+        } catch (RuntimeInterruptedException e) {
+            LOG.debug("Interrupted persisting change-delta (rethrowing)", e);
+            metrics.noteFailure(Duration.of(timer));
+            metrics.noteError(e.toString());
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (Exception e) {
+            // Don't rethrow: the behaviour of executionManager is different from a scheduledExecutorService,
+            // if we throw an exception, then our task will never get executed again
+            LOG.error("Problem persisting change-delta", e);
+            metrics.noteFailure(Duration.of(timer));
+            metrics.noteError(e.toString());
+            return false;
+        } catch (Throwable t) {
+            LOG.warn("Problem persisting change-delta (rethrowing)", t);
+            metrics.noteFailure(Duration.of(timer));
+            metrics.noteError(t.toString());
+            throw Exceptions.propagate(t);
+        }
+    }
+    
+    protected void persistNowInternal(boolean alreadyHasMutex) {
+        if (!isActive() && state != ListenerState.STOPPING) {
             return;
         }
         try {
-            persistingMutex.acquire();
-            if (!isActive()) return;
+            if (!alreadyHasMutex) persistingMutex.acquire();
+            if (!isActive() && state != ListenerState.STOPPING) return;
             
             // Atomically switch the delta, so subsequent modifications will be done in the
             // next scheduled persist
@@ -323,7 +389,7 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
                 deltaCollector = new DeltaCollector();
             }
             
-            if (LOG.isDebugEnabled()) LOG.debug("Persister delta as reported: "
+            if (LOG.isDebugEnabled()) LOG.debug("Checkpointing delta of memento: "
                     + "updating entities={}, locations={}, policies={}, enrichers={}, catalog items={}; "
                     + "removing entities={}, locations={}, policies={}, enrichers={}, catalog items={}",
                     new Object[] {
@@ -332,7 +398,7 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
 
             addReferencedObjects(prevDeltaCollector);
 
-            if (LOG.isDebugEnabled()) LOG.debug("Persister delta with references: "
+            if (LOG.isTraceEnabled()) LOG.trace("Checkpointing delta of memento with references: "
                     + "updating {} entities, {} locations, {} policies, {} enrichers, {} catalog items; "
                     + "removing {} entities, {} locations, {} policies, {} enrichers, {} catalog items",
                     new Object[] {
@@ -344,54 +410,19 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
                 if (LOG.isTraceEnabled()) LOG.trace("No changes to persist since last delta");
             } else {
                 PersisterDeltaImpl persisterDelta = new PersisterDeltaImpl();
-                for (Location location : prevDeltaCollector.locations) {
-                    try {
-                        persisterDelta.locations.add(((LocationInternal)location).getRebindSupport().getMemento());
-                    } catch (Exception e) {
-                        exceptionHandler.onGenerateMementoFailed(BrooklynObjectType.LOCATION, location, e);
+                
+                for (BrooklynObjectType type: BrooklynPersistenceUtils.STANDARD_BROOKLYN_OBJECT_TYPE_PERSISTENCE_ORDER) {
+                    for (BrooklynObject instance: prevDeltaCollector.getCollectionOfType(type)) {
+                        try {
+                            persisterDelta.add(type, ((BrooklynObjectInternal)instance).getRebindSupport().getMemento());
+                        } catch (Exception e) {
+                            exceptionHandler.onGenerateMementoFailed(type, instance, e);
+                        }
                     }
                 }
-                for (Entity entity : prevDeltaCollector.entities) {
-                    try {
-                        persisterDelta.entities.add(((EntityInternal)entity).getRebindSupport().getMemento());
-                    } catch (Exception e) {
-                        exceptionHandler.onGenerateMementoFailed(BrooklynObjectType.ENTITY, entity, e);
-                    }
+                for (BrooklynObjectType type: BrooklynPersistenceUtils.STANDARD_BROOKLYN_OBJECT_TYPE_PERSISTENCE_ORDER) {
+                    persisterDelta.removed(type, prevDeltaCollector.getRemovedIdsOfType(type));
                 }
-                for (Policy policy : prevDeltaCollector.policies) {
-                    try {
-                        persisterDelta.policies.add(policy.getRebindSupport().getMemento());
-                    } catch (Exception e) {
-                        exceptionHandler.onGenerateMementoFailed(BrooklynObjectType.POLICY, policy, e);
-                    }
-                }
-                for (Enricher enricher : prevDeltaCollector.enrichers) {
-                    try {
-                        persisterDelta.enrichers.add(enricher.getRebindSupport().getMemento());
-                    } catch (Exception e) {
-                        exceptionHandler.onGenerateMementoFailed(BrooklynObjectType.ENRICHER, enricher, e);
-                    }
-                }
-                for (Feed feed : prevDeltaCollector.feeds) {
-                    try {
-                        persisterDelta.feeds.add(feed.getRebindSupport().getMemento());
-                    } catch (Exception e) {
-                        exceptionHandler.onGenerateMementoFailed(BrooklynObjectType.FEED, feed, e);
-                    }
-                }
-                for (CatalogItem<?, ?> catalogItem : prevDeltaCollector.catalogItems) {
-                    try {
-                        persisterDelta.catalogItems.add(catalogItem.getRebindSupport().getMemento());
-                    } catch (Exception e) {
-                        exceptionHandler.onGenerateMementoFailed(BrooklynObjectType.CATALOG_ITEM, catalogItem, e);
-                    }
-                }
-                persisterDelta.removedLocationIds = prevDeltaCollector.removedLocationIds;
-                persisterDelta.removedEntityIds = prevDeltaCollector.removedEntityIds;
-                persisterDelta.removedPolicyIds = prevDeltaCollector.removedPolicyIds;
-                persisterDelta.removedEnricherIds = prevDeltaCollector.removedEnricherIds;
-                persisterDelta.removedFeedIds = prevDeltaCollector.removedFeedIds;
-                persisterDelta.removedCatalogItemIds = prevDeltaCollector.removedCatalogItemIds;
 
                 /*
                  * Need to guarantee "happens before", with any thread that subsequently reads
@@ -413,8 +444,11 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
                 LOG.debug("Problem persisting, but no longer active (ignoring)", e);
             }
         } finally {
-            writeCount.incrementAndGet();
-            persistingMutex.release();
+            synchronized (writeCount) {
+                writeCount.incrementAndGet();
+                writeCount.notifyAll();
+            }
+            if (!alreadyHasMutex) persistingMutex.release();
         }
     }
     
@@ -441,63 +475,30 @@ public class PeriodicDeltaChangeListener implements ChangeListener {
     public synchronized void onUnmanaged(BrooklynObject instance) {
         if (LOG.isTraceEnabled()) LOG.trace("onUnmanaged: {}", instance);
         if (!isStopped()) {
+            removeFromCollector(instance);
             if (instance instanceof Entity) {
                 Entity entity = (Entity) instance;
-                deltaCollector.removedEntityIds.add(entity.getId());
-                deltaCollector.entities.remove(entity);
-                
-                for (Policy policy : entity.getPolicies()) {
-                    deltaCollector.removedPolicyIds.add(policy.getId());
-                    deltaCollector.policies.remove(policy);
-                }
-                for (Enricher enricher : entity.getEnrichers()) {
-                    deltaCollector.removedEnricherIds.add(enricher.getId());
-                    deltaCollector.enrichers.remove(enricher);
-                }
-                for (Feed feed : ((EntityInternal)entity).feeds().getFeeds()) {
-                    deltaCollector.removedFeedIds.add(feed.getId());
-                    deltaCollector.feeds.remove(feed);
-                }
-            } else if (instance instanceof Location) {
-                deltaCollector.removedLocationIds.add(instance.getId());
-                deltaCollector.locations.remove(instance);
-            } else if (instance instanceof Policy) {
-                deltaCollector.removedPolicyIds.add(instance.getId());
-                deltaCollector.policies.remove(instance);
-            } else if (instance instanceof Enricher) {
-                deltaCollector.removedEnricherIds.add(instance.getId());
-                deltaCollector.enrichers.remove(instance);
-            } else if (instance instanceof Feed) {
-                deltaCollector.removedFeedIds.add(instance.getId());
-                deltaCollector.feeds.remove(instance);
-            } else if (instance instanceof CatalogItem) {
-                deltaCollector.removedCatalogItemIds.add(instance.getId());
-                deltaCollector.catalogItems.remove(instance);
-            } else {
-                throw new IllegalStateException("Unexpected brooklyn type: "+instance);
+                for (BrooklynObject adjunct : entity.getPolicies()) removeFromCollector(adjunct);
+                for (BrooklynObject adjunct : entity.getEnrichers()) removeFromCollector(adjunct);
+                for (BrooklynObject adjunct : ((EntityInternal)entity).feeds().getFeeds()) removeFromCollector(adjunct);
             }
         }
+    }
+    
+    private void removeFromCollector(BrooklynObject instance) {
+        deltaCollector.remove(instance);
     }
 
     @Override
     public synchronized void onChanged(BrooklynObject instance) {
         if (LOG.isTraceEnabled()) LOG.trace("onChanged: {}", instance);
         if (!isStopped()) {
-            if (instance instanceof Entity) {
-                deltaCollector.entities.add((Entity)instance);
-            } else if (instance instanceof Location) {
-                deltaCollector.locations.add((Location) instance);
-            } else if (instance instanceof Policy) {
-                deltaCollector.policies.add((Policy) instance);
-            } else if (instance instanceof Enricher) {
-                deltaCollector.enrichers.add((Enricher) instance);
-            } else if (instance instanceof Feed) {
-                deltaCollector.feeds.add((Feed) instance);
-            } else if (instance instanceof CatalogItem) {
-                deltaCollector.catalogItems.add((CatalogItem<?,?>) instance);
-            } else {
-                throw new IllegalStateException("Unexpected brooklyn type: "+instance);
-            }
+            deltaCollector.add(instance);
         }
     }
+    
+    public PersistenceExceptionHandler getExceptionHandler() {
+        return exceptionHandler;
+    }
+    
 }

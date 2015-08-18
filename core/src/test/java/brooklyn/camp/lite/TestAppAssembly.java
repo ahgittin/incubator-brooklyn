@@ -18,8 +18,8 @@
  */
 package brooklyn.camp.lite;
 
-import io.brooklyn.camp.spi.Assembly;
-import brooklyn.test.entity.TestApplication;
+import org.apache.brooklyn.camp.spi.Assembly;
+import org.apache.brooklyn.test.entity.TestApplication;
 
 public class TestAppAssembly extends Assembly {
 

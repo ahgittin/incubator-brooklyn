@@ -18,10 +18,10 @@
  */
 package brooklyn.entity.rebind.persister;
 
+import org.apache.brooklyn.api.management.ManagementContext;
 import org.testng.annotations.Test;
 
 import brooklyn.entity.rebind.RebindTestUtils;
-import brooklyn.management.ManagementContext;
 import brooklyn.util.time.Duration;
 
 @Test

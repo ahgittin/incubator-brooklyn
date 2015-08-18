@@ -27,25 +27,25 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.management.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.enricher.Enrichers;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.AbstractGroupImpl;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityFactory;
 import brooklyn.entity.basic.EntityFactoryForLocation;
 import brooklyn.entity.basic.EntityInternal;
-import brooklyn.entity.basic.EntityLocal;
 import brooklyn.entity.basic.Lifecycle;
 import brooklyn.entity.basic.ServiceStateLogic;
 import brooklyn.entity.effector.Effectors;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.trait.Changeable;
 import brooklyn.entity.trait.Startable;
-import brooklyn.location.Location;
-import brooklyn.management.Task;
 import brooklyn.util.GroovyJavaMethods;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.exceptions.Exceptions;
@@ -110,13 +110,17 @@ public class DynamicFabricImpl extends AbstractGroupImpl implements DynamicFabri
     }
     
     @Override
-    public void start(Collection<? extends Location> locations) {
-        Preconditions.checkNotNull(locations, "locations must be supplied");
-        Preconditions.checkArgument(locations.size() >= 1, "One or more location must be supplied");
-        addLocations(locations);
+    public void start(Collection<? extends Location> locsO) {
+        if (locsO!=null) {
+            addLocations(locsO);
+        }
         
-        List<Location> newLocations = MutableList.copyOf(locations);
+        List<Location> newLocations = MutableList.copyOf(locsO);
         if (newLocations.isEmpty()) newLocations.addAll(getLocations());
+        
+        Preconditions.checkNotNull(newLocations, "locations must be supplied");
+        Preconditions.checkArgument(newLocations.size() >= 1, "One or more locations must be supplied");
+        
         int locIndex = 0;
         
         ServiceStateLogic.setExpectedState(this, Lifecycle.STARTING);

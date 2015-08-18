@@ -31,28 +31,30 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Group;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.test.TestUtils;
+import org.apache.brooklyn.test.entity.BlockingEntity;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.entity.BrooklynAppUnitTestSupport;
-import brooklyn.entity.Entity;
-import brooklyn.entity.Group;
 import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.BasicEntity;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityFactory;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.trait.Startable;
-import brooklyn.location.Location;
-import brooklyn.location.basic.PortRanges;
-import brooklyn.location.basic.SimulatedLocation;
-import brooklyn.management.Task;
+
+import org.apache.brooklyn.location.basic.PortRanges;
+import org.apache.brooklyn.location.basic.SimulatedLocation;
+
 import brooklyn.test.Asserts;
-import brooklyn.test.TestUtils;
-import brooklyn.test.entity.BlockingEntity;
-import brooklyn.test.entity.TestEntity;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.repeat.Repeater;

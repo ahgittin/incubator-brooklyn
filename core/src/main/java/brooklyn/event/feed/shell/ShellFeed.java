@@ -27,13 +27,17 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.management.ExecutionContext;
+import org.apache.brooklyn.core.util.task.system.ProcessTaskFactory;
+import org.apache.brooklyn.core.util.task.system.ProcessTaskWrapper;
+import org.apache.brooklyn.core.util.task.system.internal.SystemProcessTaskFactory.ConcreteSystemProcessTaskFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.ConfigKey;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.EntityInternal;
-import brooklyn.entity.basic.EntityLocal;
 import brooklyn.event.feed.AbstractFeed;
 import brooklyn.event.feed.AttributePollHandler;
 import brooklyn.event.feed.DelegatingPollHandler;
@@ -41,10 +45,6 @@ import brooklyn.event.feed.Poller;
 import brooklyn.event.feed.function.FunctionFeed;
 import brooklyn.event.feed.ssh.SshFeed;
 import brooklyn.event.feed.ssh.SshPollValue;
-import brooklyn.management.ExecutionContext;
-import brooklyn.util.task.system.ProcessTaskFactory;
-import brooklyn.util.task.system.ProcessTaskWrapper;
-import brooklyn.util.task.system.internal.SystemProcessTaskFactory.ConcreteSystemProcessTaskFactory;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
@@ -113,6 +113,7 @@ public class ShellFeed extends AbstractFeed {
         private long period = 500;
         private TimeUnit periodUnits = TimeUnit.MILLISECONDS;
         private List<ShellPollConfig<?>> polls = Lists.newArrayList();
+        private String uniqueTag;
         private volatile boolean built;
         
         public Builder entity(EntityLocal val) {
@@ -129,6 +130,10 @@ public class ShellFeed extends AbstractFeed {
         }
         public Builder poll(ShellPollConfig<?> config) {
             polls.add(config);
+            return this;
+        }
+        public Builder uniqueTag(String uniqueTag) {
+            this.uniqueTag = uniqueTag;
             return this;
         }
         public ShellFeed build() {
@@ -191,6 +196,7 @@ public class ShellFeed extends AbstractFeed {
 
         SetMultimap<ShellPollIdentifier, ShellPollConfig<?>> polls = HashMultimap.<ShellPollIdentifier,ShellPollConfig<?>>create();
         for (ShellPollConfig<?> config : builder.polls) {
+            if (!config.isEnabled()) continue;
             @SuppressWarnings({ "unchecked", "rawtypes" })
             ShellPollConfig<?> configCopy = new ShellPollConfig(config);
             if (configCopy.getPeriod() < 0) configCopy.period(builder.period, builder.periodUnits);
@@ -204,6 +210,7 @@ public class ShellFeed extends AbstractFeed {
             polls.put(new ShellPollIdentifier(command, env, dir, input, context, timeout), configCopy);
         }
         setConfig(POLLS, polls);
+        initUniqueTag(builder.uniqueTag, polls.values());
     }
 
     @Override

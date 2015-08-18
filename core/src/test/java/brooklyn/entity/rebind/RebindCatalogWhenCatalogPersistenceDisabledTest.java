@@ -20,20 +20,24 @@ package brooklyn.entity.rebind;
 
 import static org.testng.Assert.assertEquals;
 
+import java.io.File;
+
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import com.google.common.collect.Iterables;
-
 import brooklyn.camp.lite.CampPlatformWithJustBrooklynMgmt;
-import brooklyn.catalog.CatalogItem;
+
+import org.apache.brooklyn.api.catalog.CatalogItem;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.core.internal.BrooklynFeatureEnablement;
+import org.apache.brooklyn.core.management.internal.LocalManagementContext;
+import org.apache.brooklyn.test.entity.TestEntity;
+
 import brooklyn.config.BrooklynProperties;
 import brooklyn.config.BrooklynServerConfig;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.internal.BrooklynFeatureEnablement;
-import brooklyn.management.internal.LocalManagementContext;
-import brooklyn.test.entity.TestEntity;
+
+import com.google.common.collect.Iterables;
 
 public class RebindCatalogWhenCatalogPersistenceDisabledTest extends RebindTestFixtureWithApp {
 
@@ -69,7 +73,7 @@ public class RebindCatalogWhenCatalogPersistenceDisabledTest extends RebindTestF
     }
 
     @Override
-    protected LocalManagementContext createNewManagementContext() {
+    protected LocalManagementContext createNewManagementContext(File mementoDir) {
         BrooklynProperties properties = BrooklynProperties.Factory.newDefault();
         properties.put(BrooklynServerConfig.BROOKLYN_CATALOG_URL, TEST_CATALOG);
         return RebindTestUtils.managementContextBuilder(mementoDir, classLoader)
@@ -82,7 +86,7 @@ public class RebindCatalogWhenCatalogPersistenceDisabledTest extends RebindTestF
     public void testModificationsToCatalogAreNotPersistedWhenCatalogPersistenceFeatureIsDisabled() throws Exception {
         assertEquals(Iterables.size(origManagementContext.getCatalog().getCatalogItems()), 1);
         CatalogItem<Object, Object> toRemove = Iterables.getOnlyElement(origManagementContext.getCatalog().getCatalogItems());
-        origManagementContext.getCatalog().deleteCatalogItem(toRemove.getId());
+        origManagementContext.getCatalog().deleteCatalogItem(toRemove.getSymbolicName(), toRemove.getVersion());
         assertEquals(Iterables.size(origManagementContext.getCatalog().getCatalogItems()), 0);
 
         rebind();

@@ -18,13 +18,16 @@
  */
 package brooklyn.entity.brooklynnode;
 
-import brooklyn.catalog.Catalog;
+import java.util.Map;
+
+import org.apache.brooklyn.api.catalog.Catalog;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.proxying.ImplementedBy;
+import org.apache.brooklyn.api.event.AttributeSensor;
+
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.brooklynnode.BrooklynNode;
-import brooklyn.entity.proxying.ImplementedBy;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.Sensors;
 import brooklyn.util.time.Duration;
 
@@ -54,6 +57,11 @@ public interface BrooklynEntityMirror extends Entity {
         "Frequency to poll for client sensors", Duration.FIVE_SECONDS);
     
     public static final AttributeSensor<String> MIRROR_STATUS = Sensors.newStringSensor("brooklyn.mirror.monitoring_status");
+    @SuppressWarnings("rawtypes")
+    public static final AttributeSensor<Map> MIRROR_SUMMARY = Sensors.newSensor(Map.class, "brooklyn.mirror.summary",
+        "The json map returned by the entity rest endpoint (ie the EntitySummary model)");
+    public static final AttributeSensor<String> MIRROR_CATALOG_ITEM_ID = Sensors.newStringSensor("brooklyn.mirror.catalog_item_id",
+        "The catalog item id of the mirrored entity in the remote brooklyn");
     
     public EntityHttpClient http();
 

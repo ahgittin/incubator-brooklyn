@@ -20,8 +20,10 @@ package brooklyn.event.basic;
 
 import java.util.Map;
 
+import org.apache.brooklyn.api.management.ExecutionContext;
+
 import brooklyn.config.ConfigKey;
-import brooklyn.management.ExecutionContext;
+import brooklyn.util.exceptions.Exceptions;
 
 @SuppressWarnings("rawtypes")
 public class SubElementConfigKey<T> extends BasicConfigKey<T> {
@@ -41,13 +43,36 @@ public class SubElementConfigKey<T> extends BasicConfigKey<T> {
         this.parent = parent;
     }
     
+    @SuppressWarnings("unchecked")
     @Override
     public T extractValue(Map vals, ExecutionContext exec) {
-        return super.extractValue(vals, exec);
+        if (vals.containsKey(this)) return super.extractValue(vals, exec);
+        if (parent instanceof StructuredConfigKey) {
+            // look for subkey in map at parent, in the event that the parent was set as an unstructured key
+            Object parentVals = vals.get(parent);
+            if (parentVals instanceof Map) {
+                String subName = getName().substring(parent.getName().length()+1);
+                if ( ((Map) parentVals).containsKey(subName) ) {
+                    try {
+                        return (T) resolveValue( ((Map) parentVals).get(subName), exec );
+                    } catch (Exception e) { throw Exceptions.propagate(e); }
+                }
+            }
+        }
+        return null;
     }
     
     @Override
     public boolean isSet(Map<?,?> vals) {
-        return super.isSet(vals);
+        if (super.isSet(vals)) return true;
+        if (parent instanceof StructuredConfigKey) {
+            // look for subkey in map at parent, in the event that the parent was set as an unstructured key
+            Object parentVals = vals.get(parent);
+            if (parentVals instanceof Map) {
+                String subName = getName().substring(parent.getName().length()+1);
+                if ( ((Map) parentVals).containsKey(subName) ) return true;
+            }
+        }
+        return false;
     }
 }

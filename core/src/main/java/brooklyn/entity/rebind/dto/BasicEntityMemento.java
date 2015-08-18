@@ -23,20 +23,24 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.rebind.RebindSupport;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.mementos.EntityMemento;
+import org.apache.brooklyn.api.mementos.TreeNode;
 import org.codehaus.jackson.annotate.JsonAutoDetect;
 import org.codehaus.jackson.annotate.JsonAutoDetect.Visibility;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import brooklyn.basic.BrooklynTypes;
+import org.apache.brooklyn.basic.BrooklynTypes;
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Effector;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.AbstractEntity;
-import brooklyn.entity.basic.Entities;
-import brooklyn.entity.rebind.RebindSupport;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
-import brooklyn.mementos.EntityMemento;
-import brooklyn.mementos.TreeNode;
+import brooklyn.entity.basic.ConfigKeys;
+import brooklyn.entity.basic.Sanitizer;
+import brooklyn.event.basic.Sensors;
 
 import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.collect.Lists;
@@ -47,13 +51,15 @@ import com.google.common.collect.Maps;
  * 
  * @see AbstractEntity#getRebindSupport()
  * @see RebindSupport#getMemento()
- * @see RebindSupport#reconstruct(brooklyn.entity.rebind.RebindContext, brooklyn.mementos.Memento)
+ * @see RebindSupport#reconstruct(org.apache.brooklyn.api.entity.rebind.RebindContext, org.apache.brooklyn.api.mementos.Memento)
  * 
  * @author aled
  */
 @JsonAutoDetect(fieldVisibility=Visibility.ANY, getterVisibility=Visibility.NONE)
 public class BasicEntityMemento extends AbstractTreeNodeMemento implements EntityMemento, Serializable {
 
+    private static final Logger log = LoggerFactory.getLogger(BasicEntityMemento.class);
+    
     private static final long serialVersionUID = 8642959541121050126L;
     
     public static Builder builder() {
@@ -180,12 +186,23 @@ public class BasicEntityMemento extends AbstractTreeNodeMemento implements Entit
         return staticConfigKeys;
     }
 
+    final static String LEGACY_KEY_DESCRIPTION = "This item was defined in a different version of this blueprint; metadata unavailable here.";
+    
     protected ConfigKey<?> getConfigKey(String key) {
+        ConfigKey<?> result = null;
         if (configKeys!=null) {
-            ConfigKey<?> ck = configKeys.get(key);
-            if (ck!=null) return ck;
+            result = configKeys.get(key);
+            if (result!=null && !LEGACY_KEY_DESCRIPTION.equals(result.getDescription()))
+                    return result;
         }
-        return getStaticConfigKeys().get(key);
+        ConfigKey<?> resultStatic = getStaticConfigKeys().get(key);
+        if (resultStatic!=null) return resultStatic;
+        if (result!=null) return result;
+        // can come here on rebind if a key has gone away in the class, so create a generic one; 
+        // but if it was previously found to a legacy key (below) which is added back after a regind, 
+        // gnore the legacy description (several lines above) and add the key back from static (code just above)
+        log.warn("Config key "+key+": "+LEGACY_KEY_DESCRIPTION);
+        return ConfigKeys.newConfigKey(Object.class, key, LEGACY_KEY_DESCRIPTION);
     }
 
     protected synchronized Map<String, Sensor<?>> getStaticSensorKeys() {
@@ -198,11 +215,18 @@ public class BasicEntityMemento extends AbstractTreeNodeMemento implements Entit
     }
 
     protected AttributeSensor<?> getAttributeKey(String key) {
+        AttributeSensor<?> result=null;
         if (attributeKeys!=null) {
-            AttributeSensor<?> ak = attributeKeys.get(key);
-            if (ak!=null) return ak;
+            result = attributeKeys.get(key);
+            if (result!=null && !LEGACY_KEY_DESCRIPTION.equals(result.getDescription()))
+                return result;
         }
-        return (AttributeSensor<?>) getStaticSensorKeys().get(key);
+        AttributeSensor<?> resultStatic = (AttributeSensor<?>) getStaticSensorKeys().get(key);
+        if (resultStatic!=null) return resultStatic;
+        if (result!=null) return result;
+        // see notes on legacy config key
+        log.warn("Sensor "+key+": "+LEGACY_KEY_DESCRIPTION);
+        return Sensors.newSensor(Object.class, key, LEGACY_KEY_DESCRIPTION);
     }
 
     /**
@@ -291,9 +315,9 @@ public class BasicEntityMemento extends AbstractTreeNodeMemento implements Entit
     protected ToStringHelper newVerboseStringHelper() {
         return super.newVerboseStringHelper()
                 .add("members", getMembers())
-                .add("config", Entities.sanitize(getConfig()))
-                .add("configUnmatched", Entities.sanitize(getConfigUnmatched()))
-                .add("attributes", Entities.sanitize(getAttributes()))
+                .add("config", Sanitizer.sanitize(getConfig()))
+                .add("configUnmatched", Sanitizer.sanitize(getConfigUnmatched()))
+                .add("attributes", Sanitizer.sanitize(getAttributes()))
                 .add("policies", getPolicies())
                 .add("enrichers", getEnrichers())
                 .add("tags", getTags())

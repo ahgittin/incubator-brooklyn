@@ -19,14 +19,18 @@
 package brooklyn.util.collections;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import javax.annotation.Nullable;
 
+import brooklyn.util.collections.QuorumCheck.QuorumChecks;
+
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Supplier;
@@ -102,6 +106,23 @@ public class CollectionFunctionals {
         return new SizeFunction(valueIfInputNull);
     }
 
+    public static final class FirstElementFunction<T> implements Function<Iterable<? extends T>, T> {
+        private FirstElementFunction() {
+        }
+
+        @Override
+        public T apply(Iterable<? extends T> input) {
+            if (input==null) return null;
+            return Iterables.get(input, 0);
+        }
+
+        @Override public String toString() { return "firstElementFunction"; }
+    }
+
+    public static <T> Function<Iterable<? extends T>, T> firstElement() {
+        return new FirstElementFunction<T>();
+    }
+    
     public static <K> Function<Map<K,?>,Set<K>> keys() {
         return new KeysOfMapFunction<K>();
     }
@@ -125,6 +146,14 @@ public class CollectionFunctionals {
 
     public static Predicate<Iterable<?>> sizeEquals(int targetSize) {
         return Predicates.compose(Predicates.equalTo(targetSize), CollectionFunctionals.sizeFunction());
+    }
+
+    public static Predicate<Iterable<?>> empty() {
+        return sizeEquals(0);
+    }
+
+    public static Predicate<Iterable<?>> notEmpty() {
+        return Predicates.not(empty());
     }
 
     public static <K> Predicate<Map<K,?>> mapSizeEquals(int targetSize) {
@@ -152,5 +181,62 @@ public class CollectionFunctionals {
             return result;
         }
     }
+
+    // ---------
+    public static <I,T extends Collection<I>> Predicate<T> contains(I item) {
+        return new CollectionContains<I,T>(item);
+    }
+    
+    private static final class CollectionContains<I,T extends Collection<I>> implements Predicate<T> {
+        private final I item;
+        private CollectionContains(I item) {
+            this.item = item;
+        }
+        @Override
+        public boolean apply(T input) {
+            if (input==null) return false;
+            return input.contains(item);
+        }
+        @Override
+        public String toString() {
+            return "contains("+item+")";
+        }
+    }
+
+    // ---------
+    
+    public static <T,TT extends Iterable<T>> Predicate<TT> all(Predicate<T> attributeSatisfies) {
+        return quorum(QuorumChecks.all(), attributeSatisfies);
+    }
+
+    public static <T,TT extends Iterable<T>> Predicate<TT> quorum(QuorumCheck quorumCheck, Predicate<T> attributeSatisfies) {
+        return new QuorumSatisfies<T, TT>(quorumCheck, attributeSatisfies);
+    }
+
+
+    private static final class QuorumSatisfies<I,T extends Iterable<I>> implements Predicate<T> {
+        private final Predicate<I> itemCheck;
+        private final QuorumCheck quorumCheck;
+        private QuorumSatisfies(QuorumCheck quorumCheck, Predicate<I> itemCheck) {
+            this.itemCheck = Preconditions.checkNotNull(itemCheck, "itemCheck");
+            this.quorumCheck = Preconditions.checkNotNull(quorumCheck, "quorumCheck");
+        }
+        @Override
+        public boolean apply(T input) {
+            if (input==null) return false;
+            int sizeHealthy = 0, totalSize = 0;
+            for (I item: input) {
+                totalSize++;
+                if (itemCheck.apply(item)) sizeHealthy++;
+            }
+            return quorumCheck.isQuorate(sizeHealthy, totalSize);
+        }
+        @Override
+        public String toString() {
+            return quorumCheck.toString()+"("+itemCheck+")";
+        }
+    }
+
+
 
 }

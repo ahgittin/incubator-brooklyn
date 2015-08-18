@@ -26,6 +26,17 @@ import static org.testng.Assert.assertTrue;
 import java.util.Collection;
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.EnricherSpec;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+import org.apache.brooklyn.test.EntityTestUtils;
+import org.apache.brooklyn.test.entity.TestApplication;
+import org.apache.brooklyn.test.entity.TestEntity;
+import org.apache.brooklyn.test.entity.TestEntityImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.annotations.BeforeMethod;
@@ -34,26 +45,17 @@ import org.testng.annotations.Test;
 import brooklyn.config.ConfigKey;
 import brooklyn.enricher.Enrichers;
 import brooklyn.enricher.basic.AbstractEnricher;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityInternal;
 import brooklyn.entity.basic.EntityPredicates;
 import brooklyn.entity.group.DynamicCluster;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.Sensors;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.SimulatedLocation;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.EnricherSpec;
+
+import org.apache.brooklyn.location.basic.SimulatedLocation;
+
 import brooklyn.test.Asserts;
-import brooklyn.test.EntityTestUtils;
-import brooklyn.test.entity.TestApplication;
-import brooklyn.test.entity.TestEntity;
-import brooklyn.test.entity.TestEntityImpl;
 import brooklyn.util.collections.MutableSet;
-import brooklyn.util.flags.SetFromFlag;
 import brooklyn.util.text.Identifiers;
 import brooklyn.util.text.StringFunctions;
 

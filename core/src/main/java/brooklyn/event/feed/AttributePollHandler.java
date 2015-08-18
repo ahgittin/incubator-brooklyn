@@ -20,15 +20,20 @@ package brooklyn.event.feed;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
+import org.apache.brooklyn.core.util.task.Tasks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.base.Objects;
+
+import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityInternal;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.event.AttributeSensor;
-import brooklyn.util.flags.TypeCoercions;
-import brooklyn.util.task.Tasks;
+import brooklyn.entity.basic.Lifecycle;
+import brooklyn.entity.basic.Lifecycle.Transition;
 import brooklyn.util.time.Duration;
 
 /**
@@ -49,6 +54,7 @@ public class AttributePollHandler<V> implements PollHandler<V> {
     @SuppressWarnings("rawtypes")
     private final AttributeSensor sensor;
     private final AbstractFeed feed;
+    private final boolean suppressDuplicates;
     
     // allow 30 seconds before logging at WARN, if there has been no success yet;
     // after success WARN immediately
@@ -61,12 +67,14 @@ public class AttributePollHandler<V> implements PollHandler<V> {
     private volatile Long currentProblemStartTime = null;
     private volatile boolean currentProblemLoggedAsWarning = false;
     private volatile boolean lastWasProblem = false;
+
     
     public AttributePollHandler(FeedConfig<V,?,?> config, EntityLocal entity, AbstractFeed feed) {
         this.config = checkNotNull(config, "config");
         this.entity = checkNotNull(entity, "entity");
         this.sensor = checkNotNull(config.getSensor(), "sensor");
         this.feed = checkNotNull(feed, "feed");
+        this.suppressDuplicates = config.getSupressDuplicates();
     }
 
     @Override
@@ -157,7 +165,7 @@ public class AttributePollHandler<V> implements PollHandler<V> {
             // get a non-volatile value
             Long currentProblemStartTimeCache = currentProblemStartTime;
             long expiryTime = 
-                    lastSuccessTime!=null ? lastSuccessTime+logWarningGraceTime.toMilliseconds() :
+                    (lastSuccessTime!=null && !isTransitioningOrStopped()) ? lastSuccessTime+logWarningGraceTime.toMilliseconds() :
                     currentProblemStartTimeCache!=null ? currentProblemStartTimeCache+logWarningGraceTimeOnStartup.toMilliseconds() :
                     nowTime+logWarningGraceTimeOnStartup.toMilliseconds();
             if (!lastWasProblem) {
@@ -194,9 +202,16 @@ public class AttributePollHandler<V> implements PollHandler<V> {
         }
     }
 
+    protected boolean isTransitioningOrStopped() {
+        if (entity==null) return false;
+        Transition expected = entity.getAttribute(Attributes.SERVICE_STATE_EXPECTED);
+        if (expected==null) return false;
+        return (expected.getState()==Lifecycle.STARTING || expected.getState()==Lifecycle.STOPPING || expected.getState()==Lifecycle.STOPPED);
+    }
+
     @SuppressWarnings("unchecked")
     protected void setSensor(Object v) {
-        if (!Entities.isManaged(entity)) {
+        if (Entities.isNoLongerManaged(entity)) {
             if (Tasks.isInterrupted()) return;
             log.warn(""+entity+" is not managed; feed "+this+" setting "+sensor+" to "+v+" at this time is not supported ("+Tasks.current()+")");
         }
@@ -208,7 +223,12 @@ public class AttributePollHandler<V> implements PollHandler<V> {
         } else if (sensor == FeedConfig.NO_SENSOR) {
             // nothing
         } else {
-            entity.setAttribute(sensor, TypeCoercions.coerce(v, sensor.getType()));
+            Object coercedV = TypeCoercions.coerce(v, sensor.getType());
+            if (suppressDuplicates && Objects.equal(coercedV, entity.getAttribute(sensor))) {
+                // no change; nothing
+            } else {
+                entity.setAttribute(sensor, coercedV);
+            }
         }
     }
 

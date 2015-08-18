@@ -18,22 +18,22 @@
  */
 package brooklyn.event.basic;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.reflect.TypeToken;
 
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.AbstractEntity;
 import brooklyn.entity.basic.BrooklynConfigKeys;
 import brooklyn.entity.basic.ConfigKeys;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.event.Sensor;
 import brooklyn.event.feed.ConfigToAttributes;
-import brooklyn.management.ManagementContext;
 import brooklyn.util.exceptions.Exceptions;
-import brooklyn.util.flags.TypeCoercions;
 
 /**
 * A {@link Sensor} describing an attribute that can be configured with inputs that are used to derive the final value.

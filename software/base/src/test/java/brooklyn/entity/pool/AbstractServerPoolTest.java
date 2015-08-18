@@ -18,33 +18,33 @@
  */
 package brooklyn.entity.pool;
 
-import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
 import java.util.List;
 
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.location.NoMachinesAvailableException;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.test.EntityTestUtils;
+import org.apache.brooklyn.test.entity.LocalManagementContextForTests;
+import org.apache.brooklyn.test.entity.TestApplication;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
-
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import brooklyn.entity.basic.ApplicationBuilder;
 import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.BrooklynConfigKeys;
 import brooklyn.entity.basic.EmptySoftwareProcess;
 import brooklyn.entity.basic.Entities;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.location.Location;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.NoMachinesAvailableException;
-import brooklyn.location.basic.LocalhostMachineProvisioningLocation;
-import brooklyn.management.ManagementContext;
-import brooklyn.test.EntityTestUtils;
-import brooklyn.test.entity.LocalManagementContextForTests;
-import brooklyn.test.entity.TestApplication;
+
+import org.apache.brooklyn.location.basic.LocalhostMachineProvisioningLocation;
+
 import brooklyn.util.exceptions.Exceptions;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 public abstract class AbstractServerPoolTest {
 
@@ -72,7 +72,8 @@ public abstract class AbstractServerPoolTest {
                 .configure(ServerPool.INITIAL_SIZE, getInitialPoolSize())
                 .configure(ServerPool.MEMBER_SPEC, EntitySpec.create(EmptySoftwareProcess.class)));
         poolApp.start(ImmutableList.of(location));
-        assertTrue(pool.getAttribute(Attributes.SERVICE_UP));
+        EntityTestUtils.assertAttributeEqualsEventually(pool, Attributes.SERVICE_UP, true);
+        assertAvailableCountEventuallyEquals(getInitialPoolSize());
     }
 
     @AfterMethod(alwaysRun=true)
@@ -116,24 +117,20 @@ public abstract class AbstractServerPoolTest {
         }
     }
 
-    protected void assertAvailableCountEquals(int count) {
-        assertAvailableCountEquals(pool, count);
-    }
-
-    protected void assertAvailableCountEquals(ServerPool pool, Integer count) {
-        assertEquals(pool.getAttribute(ServerPool.AVAILABLE_COUNT), count);
-    }
-
     protected void assertAvailableCountEventuallyEquals(int count) {
+        assertAvailableCountEventuallyEquals(pool, count);
+    }
+
+    protected void assertAvailableCountEventuallyEquals(ServerPool pool, int count) {
         EntityTestUtils.assertAttributeEqualsEventually(pool, ServerPool.AVAILABLE_COUNT, count);
     }
 
-    protected void assertClaimedCountEquals(int count) {
-        assertClaimedCountEquals(pool, count);
+    protected void assertClaimedCountEventuallyEquals(int count) {
+        assertClaimedCountEventuallyEquals(pool, count);
     }
 
-    protected void assertClaimedCountEquals(ServerPool pool, Integer count) {
-        assertEquals(pool.getAttribute(ServerPool.CLAIMED_COUNT), count);
+    protected void assertClaimedCountEventuallyEquals(ServerPool pool, Integer count) {
+        EntityTestUtils.assertAttributeEqualsEventually(pool, ServerPool.CLAIMED_COUNT, count);
     }
 
     protected TestApplication createAppWithChildren(int numChildren) {

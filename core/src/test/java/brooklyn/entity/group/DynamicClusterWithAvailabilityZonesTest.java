@@ -28,24 +28,27 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.entity.BrooklynAppUnitTestSupport;
-import brooklyn.entity.Entity;
-import brooklyn.entity.basic.EntityLocal;
 import brooklyn.entity.basic.EntityPredicates;
 import brooklyn.entity.group.zoneaware.ProportionalZoneFailureDetector;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.trait.FailingEntity;
-import brooklyn.location.Location;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.SimulatedLocation;
-import brooklyn.location.cloud.AbstractAvailabilityZoneExtension;
-import brooklyn.location.cloud.AvailabilityZoneExtension;
-import brooklyn.management.ManagementContext;
+
+import org.apache.brooklyn.location.basic.LocationInternal;
+import org.apache.brooklyn.location.basic.SimulatedLocation;
+import org.apache.brooklyn.location.cloud.AbstractAvailabilityZoneExtension;
+import org.apache.brooklyn.location.cloud.AvailabilityZoneExtension;
+
 import brooklyn.test.Asserts;
-import brooklyn.test.entity.TestEntity;
 import brooklyn.util.time.Duration;
 
 import com.google.common.base.Predicate;
@@ -217,7 +220,7 @@ public class DynamicClusterWithAvailabilityZonesTest extends BrooklynAppUnitTest
         protected SimulatedLocation newSubLocation(Location parent, String displayName) {
             return managementContext.getLocationManager().createLocation(LocationSpec.create(SimulatedLocation.class)
                     .parent(parent)
-                    .configure(parent.getAllConfig(true))
+                    .configure(((LocationInternal)parent).config().getBag().getAllConfig())
                     .displayName(displayName));
         }
     }

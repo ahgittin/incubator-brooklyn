@@ -23,9 +23,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Group;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.entity.proxying.ImplementedBy;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
-import brooklyn.entity.Group;
 import brooklyn.entity.annotation.Effector;
 import brooklyn.entity.annotation.EffectorParam;
 import brooklyn.entity.basic.AbstractGroup;
@@ -37,15 +43,10 @@ import brooklyn.entity.basic.Lifecycle;
 import brooklyn.entity.basic.MethodEffector;
 import brooklyn.entity.group.zoneaware.BalancingNodePlacementStrategy;
 import brooklyn.entity.group.zoneaware.ProportionalZoneFailureDetector;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.entity.proxying.ImplementedBy;
 import brooklyn.entity.trait.MemberReplaceable;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.BasicAttributeSensor;
 import brooklyn.event.basic.BasicNotificationSensor;
 import brooklyn.event.basic.Sensors;
-import brooklyn.location.Location;
-import brooklyn.util.flags.SetFromFlag;
 import brooklyn.util.time.Duration;
 
 import com.google.common.annotations.Beta;
@@ -119,6 +120,11 @@ public interface DynamicCluster extends AbstractGroup, Cluster, MemberReplaceabl
     ConfigKey<EntitySpec<?>> MEMBER_SPEC = ConfigKeys.newConfigKey(
             new TypeToken<EntitySpec<?>>() { },
             "dynamiccluster.memberspec", "entity spec for creating new cluster members", null);
+
+    @SetFromFlag("firstMemberSpec")
+    ConfigKey<EntitySpec<?>> FIRST_MEMBER_SPEC = ConfigKeys.newConfigKey(
+            new TypeToken<EntitySpec<?>>() { },
+            "dynamiccluster.firstmemberspec", "entity spec for creating new cluster members, used for the very first member if different", null);
 
     /** @deprecated since 0.7.0; use {@link #MEMBER_SPEC} instead. */
     @SuppressWarnings("rawtypes")

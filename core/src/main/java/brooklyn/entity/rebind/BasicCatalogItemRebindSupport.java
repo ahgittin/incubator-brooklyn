@@ -18,13 +18,14 @@
  */
 package brooklyn.entity.rebind;
 
+import org.apache.brooklyn.api.entity.rebind.RebindContext;
+import org.apache.brooklyn.api.mementos.CatalogItemMemento;
+import org.apache.brooklyn.core.catalog.internal.CatalogItemDtoAbstract;
+import org.apache.brooklyn.core.util.flags.FlagUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.catalog.internal.CatalogItemDtoAbstract;
-import brooklyn.mementos.CatalogItemMemento;
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.flags.FlagUtils;
 
 public class BasicCatalogItemRebindSupport extends AbstractBrooklynObjectRebindSupport<CatalogItemMemento> {
 
@@ -42,8 +43,7 @@ public class BasicCatalogItemRebindSupport extends AbstractBrooklynObjectRebindS
     public void reconstruct(RebindContext rebindContext, CatalogItemMemento memento) {
         super.reconstruct(rebindContext, memento);
         FlagUtils.setFieldsFromFlags(MutableMap.builder()
-                .put("id", memento.getId())
-                .put("registeredType", memento.getRegisteredTypeName())
+                .put("symbolicName", memento.getSymbolicName())
                 .put("javaType", memento.getJavaType())
                 .put("displayName", memento.getDisplayName())
                 .put("description", memento.getDescription())
@@ -51,6 +51,7 @@ public class BasicCatalogItemRebindSupport extends AbstractBrooklynObjectRebindS
                 .put("version", memento.getVersion())
                 .put("libraries", memento.getLibraries())
                 .put("planYaml", memento.getPlanYaml())
+                .put("deprecated", memento.isDeprecated())
                 .build(), instance);
     }
 

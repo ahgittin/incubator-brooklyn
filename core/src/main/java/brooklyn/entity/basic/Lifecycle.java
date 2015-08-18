@@ -24,7 +24,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import brooklyn.config.render.RendererHints;
-import brooklyn.util.flags.TypeCoercions;
 import brooklyn.util.text.StringFunctions;
 
 import com.google.common.base.CaseFormat;
@@ -32,8 +31,11 @@ import com.google.common.base.Function;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
+
 /**
- * An enumeration representing the status of an {@link brooklyn.entity.Entity}.
+ * An enumeration representing the status of an {@link org.apache.brooklyn.api.entity.Entity}.
  */
 public enum Lifecycle {
     /**
@@ -41,7 +43,7 @@ public enum Lifecycle {
      *
      * This stage encompasses the contruction. Once this stage is
      * complete, the basic set of {@link brooklyn.event.Sensor}s will be available, apart from any that require the entity to be active or
-     * deployed to a {@link brooklyn.location.Location}.
+     * deployed to a {@link Location}.
      */
     CREATED,
 
@@ -158,14 +160,14 @@ public enum Lifecycle {
     }
     
     protected static class TransitionCoalesceFunction implements Function<String, Transition> {
-        private static final Pattern TRANSITION_PATTERN = Pattern.compile("^(\\w+)\\s+@\\s+(\\d+).*");
+        private static final Pattern TRANSITION_PATTERN = Pattern.compile("^([\\w-]+)\\s+@\\s+(\\d+).*");
 
         @Override
         public Transition apply(final String input) {
             if (input != null) {
                 Matcher m = TRANSITION_PATTERN.matcher(input);
                 if (m.matches()) {
-                    Lifecycle state = Lifecycle.valueOf(m.group(1).toUpperCase());
+                    Lifecycle state = Lifecycle.valueOf(m.group(1).toUpperCase().replace('-', '_'));
                     long time = Long.parseLong(m.group(2));
                     return new Transition(state, new Date(time));
                 } else {

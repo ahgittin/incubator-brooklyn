@@ -26,31 +26,33 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Group;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntityInitializer;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.entity.proxying.EntityTypeRegistry;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.EnricherSpec;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.api.policy.PolicySpec;
+import org.apache.brooklyn.core.management.internal.ManagementContextInternal;
+import org.apache.brooklyn.core.policy.basic.AbstractPolicy;
+import org.apache.brooklyn.core.util.flags.FlagUtils;
+import org.apache.brooklyn.core.util.task.Tasks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
-import brooklyn.entity.Group;
 import brooklyn.entity.basic.AbstractApplication;
 import brooklyn.entity.basic.AbstractEntity;
 import brooklyn.entity.basic.BrooklynTaskTags;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityInternal;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.management.internal.LocalEntityManager;
-import brooklyn.management.internal.ManagementContextInternal;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.EnricherSpec;
-import brooklyn.policy.Policy;
-import brooklyn.policy.PolicySpec;
-import brooklyn.policy.basic.AbstractPolicy;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.collections.MutableSet;
 import brooklyn.util.exceptions.Exceptions;
-import brooklyn.util.flags.FlagUtils;
 import brooklyn.util.javalang.AggregateClassLoader;
-import brooklyn.util.task.Tasks;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
@@ -157,7 +159,7 @@ public class InternalEntityFactory extends InternalFactory {
      * fully initialized ({@link AbstractEntity#init()} invoked) and ready for
      * management -- commonly the caller will next call 
      * {@link Entities#manage(Entity)} (if it's in a managed application)
-     * or {@link Entities#startManagement(brooklyn.entity.Application, brooklyn.management.ManagementContext)}
+     * or {@link Entities#startManagement(org.apache.brooklyn.api.entity.Application, org.apache.brooklyn.api.management.ManagementContext)}
      * (if it's an application) */
     public <T extends Entity> T createEntity(EntitySpec<T> spec) {
         /* Order is important here. Changed Jul 2014 when supporting children in spec.
@@ -179,19 +181,12 @@ public class InternalEntityFactory extends InternalFactory {
         return entity;
     }
     
-    @SuppressWarnings("deprecation")
     protected <T extends Entity> T createEntityAndDescendantsUninitialized(EntitySpec<T> spec, Map<String,Entity> entitiesByEntityId, Map<String,EntitySpec<?>> specsByEntityId) {
         if (spec.getFlags().containsKey("parent") || spec.getFlags().containsKey("owner")) {
             throw new IllegalArgumentException("Spec's flags must not contain parent or owner; use spec.parent() instead for "+spec);
         }
         if (spec.getFlags().containsKey("id")) {
             throw new IllegalArgumentException("Spec's flags must not contain id; use spec.id() instead for "+spec);
-        }
-        if (spec.getId() != null) {
-            log.warn("Use of deprecated EntitySpec.id ({}); instead let management context pick the random+unique id", spec);
-            if (((LocalEntityManager)managementContext.getEntityManager()).isKnownEntityId(spec.getId())) {
-                throw new IllegalArgumentException("Entity with id "+spec.getId()+" already exists; cannot create new entity with this explicit id from spec "+spec);
-            }
         }
         
         try {
@@ -240,6 +235,10 @@ public class InternalEntityFactory extends InternalFactory {
         try {
             if (spec.getDisplayName()!=null)
                 ((AbstractEntity)entity).setDisplayName(spec.getDisplayName());
+            
+            if (spec.getCatalogItemId()!=null) {
+                ((AbstractEntity)entity).setCatalogItemId(spec.getCatalogItemId());
+            }
             
             entity.tags().addTags(spec.getTags());
             ((AbstractEntity)entity).configure(MutableMap.copyOf(spec.getFlags()));
@@ -291,15 +290,9 @@ public class InternalEntityFactory extends InternalFactory {
                 
                 ((AbstractEntity)entity).addLocations(spec.getLocations());
 
-                for (EntityInitializer initializer: spec.getInitializers())
+                for (EntityInitializer initializer: spec.getInitializers()) {
                     initializer.apply((EntityInternal)entity);
-                /* 31 Mar 2014, moved initialization (above) into this task: primarily for consistency and traceability on failure.
-                 * TBC whether this is good/bad/indifferent. My (Alex) opinion is that whether it is done in a subtask 
-                 * should be the same as whether enricher/policy/etc (below) is done subtasks, which is was added recently
-                 * in 249c96fbb18bd9d763029475e0a3dc251c01b287. @nakomis can you give exact reason code below is needed in a task
-                 * commit message said was to do with wiring up yaml sensors and policies -- which makes sense but specifics would be handy!
-                 * and would let me know if there is any reason to do / not_do the initializer code above also here! 
-                 */
+                }
                 
                 for (Enricher enricher : spec.getEnrichers()) {
                     entity.addEnricher(enricher);
@@ -339,8 +332,7 @@ public class InternalEntityFactory extends InternalFactory {
      * although for old-style entities flags from the spec are passed to the constructor.
      */
     public <T extends Entity> T constructEntity(Class<? extends T> clazz, EntitySpec<T> spec) {
-        @SuppressWarnings("deprecation")
-        T entity = constructEntityImpl(clazz, spec.getFlags(), spec.getId());
+        T entity = constructEntityImpl(clazz, spec.getFlags());
         if (((AbstractEntity)entity).getProxy() == null) ((AbstractEntity)entity).setProxy(createEntityProxy(spec, entity));
         return entity;
     }
@@ -360,8 +352,22 @@ public class InternalEntityFactory extends InternalFactory {
         checkState(interfaces != null && !Iterables.isEmpty(interfaces), "must have at least one interface for entity %s:%s", clazz, entityId);
         
         T entity = constructEntityImpl(clazz, ImmutableMap.<String, Object>of(), entityId);
-        if (((AbstractEntity)entity).getProxy() == null) ((AbstractEntity)entity).setProxy(createEntityProxy(interfaces, entity));
+        if (((AbstractEntity)entity).getProxy() == null) {
+            Entity proxy = managementContext.getEntityManager().getEntity(entity.getId());
+            if (proxy==null) {
+                // normal case, proxy does not exist
+                proxy = createEntityProxy(interfaces, entity);
+            } else {
+                // only if rebinding to existing; don't create a new proxy, then we have proxy explosion
+                // but callers must be careful that the entity's proxy does not yet point to it
+            }
+            ((AbstractEntity)entity).setProxy(proxy);
+        }
         return entity;
+    }
+
+    protected <T extends Entity> T constructEntityImpl(Class<? extends T> clazz, Map<String, ?> constructionFlags) {
+        return constructEntityImpl(clazz, constructionFlags, null);
     }
     
     protected <T extends Entity> T constructEntityImpl(Class<? extends T> clazz, Map<String, ?> constructionFlags, String entityId) {

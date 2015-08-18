@@ -31,47 +31,51 @@ import java.util.Set;
 
 import javax.annotation.Nullable;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.location.MachineProvisioningLocation;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.core.util.task.TaskTags;
+import org.apache.brooklyn.core.util.task.Tasks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.render.RendererHints;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.AbstractGroupImpl;
 import brooklyn.entity.basic.DelegateEntity;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.basic.EntityFactory;
 import brooklyn.entity.basic.EntityFactoryForLocation;
-import brooklyn.entity.basic.EntityLocal;
 import brooklyn.entity.basic.Lifecycle;
 import brooklyn.entity.basic.QuorumCheck.QuorumChecks;
 import brooklyn.entity.basic.ServiceStateLogic;
 import brooklyn.entity.basic.ServiceStateLogic.ServiceProblemsLogic;
 import brooklyn.entity.effector.Effectors;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.trait.Startable;
 import brooklyn.entity.trait.StartableMethods;
-import brooklyn.location.Location;
-import brooklyn.location.basic.Locations;
-import brooklyn.location.cloud.AvailabilityZoneExtension;
-import brooklyn.management.Task;
-import brooklyn.policy.Policy;
+
+import org.apache.brooklyn.location.basic.Locations;
+import org.apache.brooklyn.location.cloud.AvailabilityZoneExtension;
+
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.exceptions.ReferenceWithError;
-import brooklyn.util.flags.TypeCoercions;
 import brooklyn.util.guava.Maybe;
 import brooklyn.util.javalang.JavaClassNames;
 import brooklyn.util.javalang.Reflections;
-import brooklyn.util.task.DynamicTasks;
-import brooklyn.util.task.TaskTags;
-import brooklyn.util.task.Tasks;
 import brooklyn.util.text.StringPredicates;
 import brooklyn.util.text.Strings;
 
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -131,12 +135,14 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
 
     private static final Function<Collection<Entity>, Entity> defaultRemovalStrategy = new Function<Collection<Entity>, Entity>() {
         @Override public Entity apply(Collection<Entity> contenders) {
-            // choose newest entity that is stoppable
+            // choose newest entity that is stoppable, or if none are stoppable take the newest non-stoppable
             long newestTime = 0;
             Entity newest = null;
 
             for (Entity contender : contenders) {
-                if (contender instanceof Startable && contender.getCreationTime() > newestTime) {
+                boolean newer = contender.getCreationTime() > newestTime;
+                if ((contender instanceof Startable && newer) || 
+                    (!(newest instanceof Startable) && ((contender instanceof Startable) || newer))) {
                     newest = contender;
                     newestTime = contender.getCreationTime();
                 }
@@ -155,9 +161,9 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
 
     @Override
     protected void initEnrichers() {
-        if (getConfigRaw(UP_QUORUM_CHECK, true).isAbsent() && getConfig(INITIAL_SIZE)==0) {
+        if (config().getRaw(UP_QUORUM_CHECK).isAbsent() && getConfig(INITIAL_SIZE)==0) {
             // if initial size is 0 then override up check to allow zero if empty
-            setConfig(UP_QUORUM_CHECK, QuorumChecks.atLeastOneUnlessEmpty());
+            config().set(UP_QUORUM_CHECK, QuorumChecks.atLeastOneUnlessEmpty());
             setAttribute(SERVICE_UP, true);
         } else {
             setAttribute(SERVICE_UP, false);
@@ -169,7 +175,7 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
     
     @Override
     public void setRemovalStrategy(Function<Collection<Entity>, Entity> val) {
-        setConfig(REMOVAL_STRATEGY, checkNotNull(val, "removalStrategy"));
+        config().set(REMOVAL_STRATEGY, checkNotNull(val, "removalStrategy"));
     }
 
     protected Function<Collection<Entity>, Entity> getRemovalStrategy() {
@@ -179,7 +185,7 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
 
     @Override
     public void setZonePlacementStrategy(NodePlacementStrategy val) {
-        setConfig(ZONE_PLACEMENT_STRATEGY, checkNotNull(val, "zonePlacementStrategy"));
+        config().set(ZONE_PLACEMENT_STRATEGY, checkNotNull(val, "zonePlacementStrategy"));
     }
 
     protected NodePlacementStrategy getZonePlacementStrategy() {
@@ -188,11 +194,15 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
 
     @Override
     public void setZoneFailureDetector(ZoneFailureDetector val) {
-        setConfig(ZONE_FAILURE_DETECTOR, checkNotNull(val, "zoneFailureDetector"));
+        config().set(ZONE_FAILURE_DETECTOR, checkNotNull(val, "zoneFailureDetector"));
     }
 
     protected ZoneFailureDetector getZoneFailureDetector() {
         return checkNotNull(getConfig(ZONE_FAILURE_DETECTOR), "zoneFailureDetector config");
+    }
+
+    protected EntitySpec<?> getFirstMemberSpec() {
+        return getConfig(FIRST_MEMBER_SPEC);
     }
 
     protected EntitySpec<?> getMemberSpec() {
@@ -294,8 +304,8 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
 
         int initialSize = getConfig(INITIAL_SIZE).intValue();
         int initialQuorumSize = getInitialQuorumSize();
+        Exception internalError = null;
 
-        Exception resizeException = null;
         try {
             resize(initialSize);
         } catch (Exception e) {
@@ -304,18 +314,12 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
             // But if it was this thread that threw the exception (rather than a sub-task), then need
             // to record that failure here.
             LOG.debug("Error resizing "+this+" to size "+initialSize+" (collecting and handling): "+e, e);
-            resizeException = e;
+            internalError = e;
         }
 
         Iterable<Task<?>> failed = Tasks.failed(Tasks.children(Tasks.current()));
-        Iterator<Task<?>> fi = failed.iterator();
-        boolean noFailed=true, severalFailed=false;
-        if (fi.hasNext()) {
-            noFailed = false;
-            fi.next();
-            if (fi.hasNext())
-                severalFailed = true;
-        }
+        boolean noFailed = Iterables.isEmpty(failed);
+        boolean severalFailed = Iterables.size(failed) > 1;
 
         int currentSize = getCurrentSize().intValue();
         if (currentSize < initialQuorumSize) {
@@ -331,14 +335,17 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
                     + (initialQuorumSize != initialSize ? " (initial quorum size is " + initialQuorumSize + ")" : "");
             }
             Throwable firstError = Tasks.getError(Maybe.next(failed.iterator()).orNull());
+            if (firstError==null && internalError!=null) {
+                // only use the internal error if there were no nested task failures
+                // (otherwise the internal error should be a wrapper around the nested failures)
+                firstError = internalError;
+            }
             if (firstError!=null) {
                 if (severalFailed) {
                     message += "; first failure is: "+Exceptions.collapseText(firstError);
                 } else {
                     message += ": "+Exceptions.collapseText(firstError);
                 }
-            } else {
-                firstError = resizeException;
             }
             throw new IllegalStateException(message, firstError);
             
@@ -437,7 +444,7 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
     /**
      * {@inheritDoc}
      *
-     * <strong>Note</strong> for sub-clases; this method can be called while synchronized on {@link #mutex}.
+     * <strong>Note</strong> for sub-classes; this method can be called while synchronized on {@link #mutex}.
      */
     @Override
     public String replaceMember(String memberId) {
@@ -457,25 +464,36 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
             if (isAvailabilityZoneEnabled()) {
                 // this member's location could be a machine provisioned by a sub-location, or the actual sub-location
                 List<Location> subLocations = findSubLocations(getLocation());
-                Location actualMemberLoc = checkNotNull(Iterables.getOnlyElement(member.getLocations()), "member's location (%s)", member);
-                Location contenderMemberLoc = actualMemberLoc;
+                Collection<Location> actualMemberLocs = member.getLocations();
                 boolean foundMatch = false;
-                do {
-                    if (subLocations.contains(contenderMemberLoc)) {
-                        memberLoc = contenderMemberLoc;
-                        foundMatch = true;
-                        LOG.debug("In {} replacing member {} ({}), inferred its sub-location is {}", new Object[] {this, memberId, member, memberLoc});
-                    }
-                    contenderMemberLoc = contenderMemberLoc.getParent();
-                } while (!foundMatch && contenderMemberLoc != null);
+                for (Iterator<Location> iter = actualMemberLocs.iterator(); !foundMatch && iter.hasNext();) {
+                    Location actualMemberLoc = iter.next();
+                    Location contenderMemberLoc = actualMemberLoc;
+                    do {
+                        if (subLocations.contains(contenderMemberLoc)) {
+                            memberLoc = contenderMemberLoc;
+                            foundMatch = true;
+                            LOG.debug("In {} replacing member {} ({}), inferred its sub-location is {}", new Object[] {this, memberId, member, memberLoc});
+                        }
+                        contenderMemberLoc = contenderMemberLoc.getParent();
+                    } while (!foundMatch && contenderMemberLoc != null);
+                }
                 if (!foundMatch) {
-                    memberLoc = actualMemberLoc;
-                    LOG.warn("In {} replacing member {} ({}), could not find matching sub-location; falling back to its actual location: {}", new Object[] {this, memberId, member, memberLoc});
+                    if (actualMemberLocs.isEmpty()) {
+                        memberLoc = subLocations.get(0);
+                        LOG.warn("In {} replacing member {} ({}), has no locations; falling back to first availability zone: {}", new Object[] {this, memberId, member, memberLoc});
+                    } else {
+                        memberLoc = Iterables.tryFind(actualMemberLocs, Predicates.instanceOf(MachineProvisioningLocation.class)).or(Iterables.getFirst(actualMemberLocs, null));
+                        LOG.warn("In {} replacing member {} ({}), could not find matching sub-location; falling back to its actual location: {}", new Object[] {this, memberId, member, memberLoc});
+                    }
                 } else if (memberLoc == null) {
                     // impossible to get here, based on logic above!
-                    throw new IllegalStateException("Unexpected condition! cluster="+this+"; member="+member+"; actualMemberLoc="+actualMemberLoc);
+                    throw new IllegalStateException("Unexpected condition! cluster="+this+"; member="+member+"; actualMemberLocs="+actualMemberLocs);
                 }
             } else {
+                // Replacing member, so new member should be in the same location as that being replaced.
+                // Expect this to agree with `getMemberSpec().getLocations()` (if set). If not, then 
+                // presumably there was a reason this specific member was started somewhere else!
                 memberLoc = getLocation();
             }
 
@@ -554,7 +572,7 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
     /**
      * {@inheritDoc}
      *
-     * <strong>Note</strong> for sub-clases; this method can be called while synchronized on {@link #mutex}.
+     * <strong>Note</strong> for sub-classes; this method can be called while synchronized on {@link #mutex}.
      */
     @Override
     public Collection<Entity> resizeByDelta(int delta) {
@@ -575,7 +593,16 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
 
         // choose locations to be deployed to
         List<Location> chosenLocations;
-        if (isAvailabilityZoneEnabled()) {
+        List<Location> memberLocations = getMemberSpec() == null ? null : getMemberSpec().getLocations();
+        if (memberLocations != null && memberLocations.size() > 0) {
+            // The memberSpec overrides the location passed to cluster.start(); use
+            // the location defined on the member.
+            if (isAvailabilityZoneEnabled()) {
+                LOG.warn("Cluster {} has availability-zone enabled, but memberSpec overrides location with {}; using "
+                        + "memberSpec's location; availability-zone behaviour will not apply", this, memberLocations);
+            }
+            chosenLocations = Collections.nCopies(delta, memberLocations.get(0));
+        } else if (isAvailabilityZoneEnabled()) {
             List<Location> subLocations = getNonFailedSubLocations();
             Multimap<Location, Entity> membersByLocation = getMembersByLocation();
             chosenLocations = getZonePlacementStrategy().locationsForAdditions(membersByLocation, subLocations, delta);
@@ -592,6 +619,7 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
     }
 
     /** <strong>Note</strong> for sub-clases; this method can be called while synchronized on {@link #mutex}. */
+    @SuppressWarnings("unchecked")
     protected Collection<Entity> shrink(int delta) {
         Preconditions.checkArgument(delta < 0, "Must call shrink with negative delta.");
         int size = getCurrentSize();
@@ -605,8 +633,7 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
         Collection<Entity> removedEntities = pickAndRemoveMembers(delta * -1);
 
         // FIXME symmetry in order of added as child, managed, started, and added to group
-        // FIXME assume stoppable; use logic of grow?
-        Task<?> invoke = Entities.invokeEffector(this, removedEntities, Startable.STOP, Collections.<String,Object>emptyMap());
+        Task<?> invoke = Entities.invokeEffector(this, (Iterable<Entity>)(Iterable<?>)Iterables.filter(removedEntities, Startable.class), Startable.STOP, Collections.<String,Object>emptyMap());
         try {
             invoke.get();
             return removedEntities;
@@ -643,9 +670,11 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
             Entity entity = addNode(loc, flags);
             addedEntities.add(entity);
             addedEntityLocations.put(entity, loc);
-            Map<String, ?> args = ImmutableMap.of("locations", ImmutableList.of(loc));
-            Task<Void> task = Effectors.invocation(entity, Startable.START, args).asTask();
-            tasks.put(entity, task);
+            if (entity instanceof Startable) {
+                Map<String, ?> args = ImmutableMap.of("locations", ImmutableList.of(loc));
+                Task<Void> task = Effectors.invocation(entity, Startable.START, args).asTask();
+                tasks.put(entity, task);
+            }
         }
 
         Task<List<?>> parallel = Tasks.parallel("starting "+tasks.size()+" node"+Strings.s(tasks.size())+" (parallel)", tasks.values());
@@ -756,7 +785,10 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
     }
 
     protected Entity createNode(@Nullable Location loc, Map<?,?> flags) {
-        EntitySpec<?> memberSpec = getMemberSpec();
+        EntitySpec<?> memberSpec = null;
+        if (getMembers().isEmpty()) memberSpec = getFirstMemberSpec();
+        if (memberSpec == null) memberSpec = getMemberSpec();
+        
         if (memberSpec != null) {
             return addChild(EntitySpec.create(memberSpec).configure(flags).location(loc));
         }
@@ -827,7 +859,6 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
         if (LOG.isDebugEnabled()) LOG.debug("Removing a node from {}", this);
         Entity entity = getRemovalStrategy().apply(members);
         Preconditions.checkNotNull(entity, "No entity chosen for removal from "+getId());
-        Preconditions.checkState(entity instanceof Startable, "Chosen entity for removal not stoppable: cluster="+this+"; choice="+entity);
 
         removeMember(entity);
         return Maybe.of(entity);
@@ -835,7 +866,12 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
 
     protected void discardNode(Entity entity) {
         removeMember(entity);
-        Entities.unmanage(entity);
+        try {
+            Entities.unmanage(entity);
+        } catch (IllegalStateException e) {
+            //probably already unmanaged
+            LOG.debug("Exception during removing member of cluster " + this + ", unmanaging node " + entity + ". The node is probably already unmanaged.", e);
+        }
     }
 
     protected void stopAndRemoveNode(Entity member) {
@@ -844,11 +880,7 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
         try {
             if (member instanceof Startable) {
                 Task<?> task = member.invoke(Startable.STOP, Collections.<String,Object>emptyMap());
-                try {
-                    task.get();
-                } catch (Exception e) {
-                    throw Exceptions.propagate(e);
-                }
+                task.getUnchecked();
             }
         } finally {
             Entities.unmanage(member);

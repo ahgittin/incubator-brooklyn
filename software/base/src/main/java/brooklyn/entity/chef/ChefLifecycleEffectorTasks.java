@@ -21,27 +21,30 @@ package brooklyn.entity.chef;
 import java.util.Collection;
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.location.MachineLocation;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.core.util.task.TaskTags;
+import org.apache.brooklyn.core.util.task.Tasks;
+import org.apache.brooklyn.core.util.task.system.ProcessTaskWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.Lifecycle;
 import brooklyn.entity.basic.SoftwareProcess;
 import brooklyn.entity.software.MachineLifecycleEffectorTasks;
 import brooklyn.entity.software.SshEffectorTasks;
-import brooklyn.location.MachineLocation;
-import brooklyn.location.basic.Machines;
+
+import org.apache.brooklyn.location.basic.Machines;
+
 import brooklyn.util.collections.Jsonya;
 import brooklyn.util.collections.Jsonya.Navigator;
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.config.ConfigBag;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.net.Urls;
 import brooklyn.util.ssh.BashCommands;
-import brooklyn.util.task.DynamicTasks;
-import brooklyn.util.task.Tasks;
-import brooklyn.util.task.system.ProcessTaskWrapper;
 import brooklyn.util.text.Strings;
 import brooklyn.util.time.Duration;
 import brooklyn.util.time.Time;
@@ -91,6 +94,18 @@ public class ChefLifecycleEffectorTasks extends MachineLifecycleEffectorTasks im
     public String getServiceName() {
         if (_serviceName!=null) return _serviceName;
         return _serviceName = entity().getConfig(ChefConfig.SERVICE_NAME);
+    }
+
+    protected String getNodeName() {
+        // (node name is needed so we can node delete it)
+        
+        // TODO would be better if CHEF_NODE_NAME were a freemarker template, could access entity.id, or hostname, etc,
+        // in addition to supporting hard-coded node names (which is all we support so far).
+        
+        String nodeName = entity().getConfig(ChefConfig.CHEF_NODE_NAME);
+        if (Strings.isNonBlank(nodeName)) return Strings.makeValidFilename(nodeName);
+        // node name is taken from ID of this entity, if not specified
+        return entity().getId();
     }
 
     public String getWindowsServiceName() {
@@ -217,6 +232,7 @@ public class ChefLifecycleEffectorTasks extends MachineLifecycleEffectorTasks im
 
         DynamicTasks.queue(
                 ChefServerTasks.knifeConvergeTask()
+                    .knifeNodeName(getNodeName())
                     .knifeRunList(Strings.join(runList, ","))
                     .knifeAddAttributes((Map<? extends Object, ? extends Object>)(Map) attrs.root().get())
                     .knifeRunTwice(entity().getConfig(CHEF_RUN_CONVERGE_TWICE)) );
@@ -279,9 +295,27 @@ public class ChefLifecycleEffectorTasks extends MachineLifecycleEffectorTasks im
         result |= tryStopWindowsService();
         result |= tryStopPid();
         if (!result) {
-            throw new IllegalStateException("The process for "+entity()+" appears could not be stopped (no impl!)");
+            throw new IllegalStateException("The process for "+entity()+" could not be stopped (no impl!)");
         }
         return "stopped";
+    }
+    
+    @Override
+    protected StopMachineDetails<Integer> stopAnyProvisionedMachines() {
+        if (detectChefMode(entity())==ChefModes.KNIFE) {
+            DynamicTasks.queue(
+                // if this task fails show it as failed but don't block subsequent routines
+                // (ie allow us to actually decommission the machine)
+                // TODO args could be a List<String> config key ?
+                TaskTags.markInessential(
+                new KnifeTaskFactory<String>("delete node and client registration at chef server")
+                    .add("knife node delete "+getNodeName()+" -y")
+                    .add("knife client delete "+getNodeName()+" -y")
+                    .requiringZeroAndReturningStdout()
+                    .newTask() ));
+        }
+
+        return super.stopAnyProvisionedMachines();
     }
     
     protected boolean tryStopService() {

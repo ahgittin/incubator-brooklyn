@@ -17,23 +17,22 @@
     specific language governing permissions and limitations
     under the License.
 -->
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <artifactId>brooklyn-archetype-quickstart</artifactId>
   <packaging>maven-archetype</packaging>
   <name>Brooklyn Quick-Start Project Archetype</name>
   <description>
-        This project defines an archetype for creating new projects which consume brooklyn, 
-        including an example application and an example new entity type, 
-        able to build an OSGi JAR and a binary assembly, with logging and READMEs.
-    </description>
+    This project defines an archetype for creating new projects which consume brooklyn,
+    including an example application and an example new entity type,
+    able to build an OSGi JAR and a binary assembly, with logging and READMEs.
+  </description>
 
   <parent>
     <groupId>org.apache.brooklyn</groupId>
     <artifactId>brooklyn-parent</artifactId>
-    <version>0.7.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
-    <relativePath>../../../pom.xml</relativePath>
+    <version>0.8.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
+    <relativePath>../../../parent/pom.xml</relativePath>
   </parent>
 
   <build>
@@ -87,7 +86,7 @@
                 <exclude>*.log</exclude> 
               </excludes>
               
-              <replacements/>
+              <replacements />
             </configuration>
           </execution>
           <!-- would be nice to reduce the repetion below, but don't see how;

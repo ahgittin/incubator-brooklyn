@@ -21,10 +21,14 @@ package brooklyn.entity.basic;
 import static brooklyn.entity.basic.ConfigKeys.*;
 import brooklyn.config.BrooklynServerConfig;
 import brooklyn.config.ConfigKey;
+import brooklyn.entity.trait.Startable;
 import brooklyn.event.basic.AttributeSensorAndConfigKey;
 import brooklyn.event.basic.TemplatedStringAttributeSensorAndConfigKey;
-import brooklyn.util.internal.ssh.ShellTool;
-import brooklyn.util.internal.ssh.SshTool;
+
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.core.util.internal.ssh.ShellTool;
+import org.apache.brooklyn.core.util.internal.ssh.SshTool;
+
 import brooklyn.util.time.Duration;
 
 import com.google.common.base.Preconditions;
@@ -55,8 +59,36 @@ public class BrooklynConfigKeys {
             "this should include something readable, and must include a hash of all data which differentiates an installation " +
             "(e.g. version, plugins, etc), but should be the same where install dirs can be shared to allow for re-use");
 
-    public static final ConfigKey<Boolean> ENTITY_STARTED = newBooleanConfigKey("entity.started", "Skip the startup process entirely, for running services", Boolean.FALSE);
-    public static final ConfigKey<Boolean> SKIP_INSTALLATION = newBooleanConfigKey("install.skip", "Skip the driver install commands entirely, for pre-installed software", Boolean.FALSE);
+    /**
+     * Set this configuration value to true if the entity installation, customization and launch process is to be skipped entirely.
+     * <p>
+     * This is usually because the process or service the entity represents is already present and started, as part of the image
+     * being used. The {@link Startable#SERVICE_UP} attribute will be set in the usual manner.
+     * <p>
+     * If this key is set on a {@link Location} then all entities in that location will be treated in this way. This is useful
+     * when the location is configured with a particular image containing installed and running services.
+     *
+     * @see #ENTITY_RUNNING
+     */
+    public static final ConfigKey<Boolean> SKIP_ENTITY_START = newBooleanConfigKey("entity.started", "Skip the startup process entirely, for running services");
+
+    /**
+     * Set this configuration value to true to skip the entity startup process as with {@link #ENTITY_STARTED} if the process or
+     * service represented by the entity is already running, otherwise proceed normally. This is determined using the driver's
+     * {@code isRunning()} method.
+     * <p>
+     * If this key is set on a {@link Location} then all entities in that location will be treated in this way, again as with {@link #ENTITY_STARTED}.
+     *
+     * @see #ENTITY_STARTED
+     */
+    public static final ConfigKey<Boolean> SKIP_ENTITY_START_IF_RUNNING = newBooleanConfigKey("entity.running", "Skip the startup process entirely, if service already running");
+
+    /**
+     * Set this configuration value to true if the entity installation, customization and launch process is to be skipped entirely.
+     * <p>
+     * This will skip the installation phase of the lifecycle, and move directl;y to customization and launching of the entity.
+     */
+    public static final ConfigKey<Boolean> SKIP_ENTITY_INSTALLATION = newBooleanConfigKey("install.skip", "Skip the driver install commands entirely, for pre-installed software");
 
     // The implementation in AbstractSoftwareSshDriver runs this command as an SSH command 
     public static final ConfigKey<String> PRE_INSTALL_COMMAND = ConfigKeys.newStringConfigKey("pre.install.command",
@@ -113,8 +145,10 @@ public class BrooklynConfigKeys {
      * component is up, but this entity does not care about the dependent component's actual config values.
      */
 
+    public static final ConfigKey<Boolean> PROVISION_LATCH = newBooleanConfigKey("provision.latch", "Latch for blocking location provision until ready");
     public static final ConfigKey<Boolean> START_LATCH = newBooleanConfigKey("start.latch", "Latch for blocking start until ready");
     public static final ConfigKey<Boolean> SETUP_LATCH = newBooleanConfigKey("setup.latch", "Latch for blocking setup until ready");
+    public static final ConfigKey<Boolean> PRE_INSTALL_RESOURCES_LATCH = newBooleanConfigKey("resources.preInstall.latch", "Latch for blocking pre-install resources until ready");
     public static final ConfigKey<Boolean> INSTALL_RESOURCES_LATCH = newBooleanConfigKey("resources.install.latch", "Latch for blocking install resources until ready");
     public static final ConfigKey<Boolean> INSTALL_LATCH = newBooleanConfigKey("install.latch", "Latch for blocking install until ready");
     public static final ConfigKey<Boolean> RUNTIME_RESOURCES_LATCH = newBooleanConfigKey("resources.runtime.latch", "Latch for blocking runtime resources until ready");

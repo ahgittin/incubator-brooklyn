@@ -1,5 +1,5 @@
 
-# [![**Brooklyn**](http://brooklyncentral.github.io/style/images/brooklyn.gif)](http://brooklyncentral.github.com)
+# [![**Brooklyn**](https://brooklyn.incubator.apache.org/style/img/brooklyn.gif)](http://brooklyncentral.github.com)
 
 Apache Brooklyn is a library and control plane for deploying and managing distributed applications.
 
@@ -44,9 +44,10 @@ Alternatively, use Brooklyn as an integrated-stand-alone management node for you
 
 Three quick start options are available:
 
-* The [getting started guide](http://brooklyncentral.github.io/use/guide/quickstart/index.html) will step you through downloading and installing Brooklyn and running the examples.
+* The [getting started guide](https://brooklyn.incubator.apache.org/v/latest/start/running.html) will step you through downloading and installing Brooklyn and running the examples.
 * Alternatively, [download the latest release](https://github.com/brooklyncentral/brooklyn/tarball/master) (tgz),
-* or, fork or clone the repo: `git clone git://github.com/brooklyncentral/brooklyn.git` then `mvn clean install`.
+* or, fork or clone the repo: `git clone git://github.com/apache/incubator-brooklyn.git` then `cd incubator-brooklyn; mvn clean install; cd usage/dist/target/brooklyn-dist; bin/brooklyn launch`
+`.
 
 ## Community
 
@@ -58,14 +59,13 @@ Three quick start options are available:
 
 ## Bug Tracker
 
-Have a bug or a feature request? [Please open a new issue](https://github.com/brooklyncentral/brooklyn/issues).
-
+Have a bug or a feature request? [Please open a new issue](https://issues.apache.org/jira/browse/BROOKLYN/?selectedTab=com.atlassian.jira.jira-projects-plugin:summary-panel).
 
 ## Contributing
 
 Your input will be welcomed.
 
-See the [full guide to contributing](http://brooklyncentral.github.com/dev/how-to-contrib.html) on brooklyncentral.github.com.
+See the [full guide to contributing](https://brooklyn.incubator.apache.org/community/how-to-contribute-docs.html) on brooklyn.incubator.apache.org.
 
 Thanks!
 

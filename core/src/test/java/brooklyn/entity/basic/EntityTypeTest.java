@@ -23,6 +23,10 @@ import static brooklyn.entity.basic.AbstractEntity.CHILD_REMOVED;
 import static brooklyn.entity.basic.AbstractEntity.EFFECTOR_ADDED;
 import static brooklyn.entity.basic.AbstractEntity.EFFECTOR_CHANGED;
 import static brooklyn.entity.basic.AbstractEntity.EFFECTOR_REMOVED;
+import static brooklyn.entity.basic.AbstractEntity.GROUP_ADDED;
+import static brooklyn.entity.basic.AbstractEntity.GROUP_REMOVED;
+import static brooklyn.entity.basic.AbstractEntity.LOCATION_ADDED;
+import static brooklyn.entity.basic.AbstractEntity.LOCATION_REMOVED;
 import static brooklyn.entity.basic.AbstractEntity.POLICY_ADDED;
 import static brooklyn.entity.basic.AbstractEntity.POLICY_REMOVED;
 import static brooklyn.entity.basic.AbstractEntity.SENSOR_ADDED;
@@ -33,30 +37,29 @@ import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
+import java.util.List;
 import java.util.Set;
 
 import javax.annotation.Nullable;
 
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.entity.basic.RecordingSensorEventListener;
+import org.apache.brooklyn.test.entity.TestEntity;
+import org.apache.brooklyn.test.entity.TestEntityImpl;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.entity.BrooklynAppUnitTestSupport;
-import brooklyn.entity.Effector;
-import brooklyn.entity.Entity;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
 import brooklyn.event.basic.BasicSensorEvent;
 import brooklyn.event.basic.Sensors;
-import brooklyn.test.TestUtils;
-import brooklyn.test.entity.TestEntity;
-import brooklyn.test.entity.TestEntityImpl;
-import brooklyn.util.collections.CollectionFunctionals;
+import brooklyn.test.Asserts;
 import brooklyn.util.collections.MutableSet;
 
 import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -64,13 +67,15 @@ import com.google.common.collect.Iterables;
 public class EntityTypeTest extends BrooklynAppUnitTestSupport {
     private static final AttributeSensor<String> TEST_SENSOR = Sensors.newStringSensor("test.sensor");
     private EntityInternal entity;
-    private EntitySubscriptionTest.RecordingSensorEventListener listener;
-    
+    private RecordingSensorEventListener<Sensor> listener;
+
     public final static Set<Sensor<?>> DEFAULT_SENSORS = ImmutableSet.<Sensor<?>>of(
             SENSOR_ADDED, SENSOR_REMOVED,
             EFFECTOR_ADDED, EFFECTOR_REMOVED, EFFECTOR_CHANGED,
             POLICY_ADDED, POLICY_REMOVED,
-            CHILD_ADDED, CHILD_REMOVED); 
+            CHILD_ADDED, CHILD_REMOVED,
+            LOCATION_ADDED, LOCATION_REMOVED,
+            GROUP_ADDED, GROUP_REMOVED); 
 
     public static class EmptyEntityForTesting extends AbstractEntity {}
     
@@ -79,10 +84,7 @@ public class EntityTypeTest extends BrooklynAppUnitTestSupport {
     public void setUp() throws Exception{
         super.setUp();
         entity = (EntityInternal) app.createAndManageChild(EntitySpec.create(Entity.class, EmptyEntityForTesting.class));
-//        entity = new AbstractEntity(app) {};
-//        Entities.startManagement(entity);
-        
-        listener = new EntitySubscriptionTest.RecordingSensorEventListener();
+        listener = new RecordingSensorEventListener<>();
         app.getSubscriptionContext().subscribe(entity, SENSOR_ADDED, listener);
         app.getSubscriptionContext().subscribe(entity, SENSOR_REMOVED, listener);
     }
@@ -133,8 +135,8 @@ public class EntityTypeTest extends BrooklynAppUnitTestSupport {
     @Test
     public void testGetEffectorDeprecated() throws Exception {
         TestEntity entity2 = app.createAndManageChild(EntitySpec.create(TestEntity.class));
-        Effector<?> effector = entity2.getEntityType().getEffector("myEffector");
-        Effector<?> effector2 = entity2.getEntityType().getEffector("identityEffector", Object.class);
+        Effector<?> effector = entity2.getEntityType().getEffectorByName("myEffector").get();
+        Effector<?> effector2 = entity2.getEntityType().getEffectorByName("identityEffector").get();
         assertEquals(effector.getName(), "myEffector");
         assertEquals(effector2.getName(), "identityEffector");
     }
@@ -143,6 +145,7 @@ public class EntityTypeTest extends BrooklynAppUnitTestSupport {
     public void testCustomSimpleName() throws Exception {
         class CustomTypeNamedEntity extends AbstractEntity {
             private final String typeName;
+            @SuppressWarnings("deprecation")
             CustomTypeNamedEntity(Entity parent, String typeName) {
                 super(parent);
                 this.typeName = typeName;
@@ -170,15 +173,23 @@ public class EntityTypeTest extends BrooklynAppUnitTestSupport {
         assertEquals(entity.getEntityType().getSensors(), DEFAULT_SENSORS);
     }
 
+    protected <T> void assertEventuallyListenerEventsEqual(final List<T> sensorEvents) {
+        final RecordingSensorEventListener listener = this.listener;
+        Asserts.succeedsEventually(new Runnable() {
+            @Override
+            public void run() {
+                assertEquals(listener.getEvents(), sensorEvents);
+            }
+        });
+    }
+    
     @Test
     public void testAddSensors() throws Exception{
         entity.getMutableEntityType().addSensor(TEST_SENSOR);
         assertEquals(entity.getEntityType().getSensors(), 
                 ImmutableSet.builder().addAll(DEFAULT_SENSORS).add(TEST_SENSOR).build());
         
-        TestUtils.assertEventually(
-                Suppliers.ofInstance(listener.events), 
-                Predicates.equalTo(ImmutableList.of(new BasicSensorEvent(SENSOR_ADDED, entity, TEST_SENSOR))));
+        assertEventuallyListenerEventsEqual(ImmutableList.of(BasicSensorEvent.ofUnchecked(SENSOR_ADDED, entity, TEST_SENSOR)));
     }
 
     @Test
@@ -187,9 +198,7 @@ public class EntityTypeTest extends BrooklynAppUnitTestSupport {
         assertEquals(entity.getEntityType().getSensors(), 
                 ImmutableSet.builder().addAll(DEFAULT_SENSORS).add(TEST_SENSOR).build());
         
-        TestUtils.assertEventually(
-                Suppliers.ofInstance(listener.events), 
-                Predicates.equalTo(ImmutableList.of(new BasicSensorEvent(SENSOR_ADDED, entity, TEST_SENSOR))));
+        assertEventuallyListenerEventsEqual(ImmutableList.of(BasicSensorEvent.ofUnchecked(SENSOR_ADDED, entity, TEST_SENSOR)));
     }
 
     @Test
@@ -199,11 +208,8 @@ public class EntityTypeTest extends BrooklynAppUnitTestSupport {
         assertFalse(entity.getEntityType().getSensors().contains(TEST_SENSOR), "sensors="+entity.getEntityType().getSensors()); 
         assertEquals(entity.getAttribute(TEST_SENSOR), null);
         
-        TestUtils.assertEventually(
-                Suppliers.ofInstance(listener.events), 
-                Predicates.equalTo(ImmutableList.of(
-                        new BasicSensorEvent(SENSOR_ADDED, entity, TEST_SENSOR), 
-                        new BasicSensorEvent(SENSOR_REMOVED, entity, TEST_SENSOR))));
+        assertEventuallyListenerEventsEqual(ImmutableList.of(BasicSensorEvent.ofUnchecked(SENSOR_ADDED, entity, TEST_SENSOR),
+            BasicSensorEvent.ofUnchecked(SENSOR_REMOVED, entity, TEST_SENSOR)));
     }
 
     @Test
@@ -212,9 +218,8 @@ public class EntityTypeTest extends BrooklynAppUnitTestSupport {
         assertEquals(entity.getEntityType().getSensors(), 
                 MutableSet.builder().addAll(DEFAULT_SENSORS).remove(SENSOR_ADDED).build().asUnmodifiable());
         
-        TestUtils.assertEventually(
-                Suppliers.ofInstance(listener.events), 
-                Predicates.equalTo(ImmutableList.of(new BasicSensorEvent(SENSOR_REMOVED, entity, SENSOR_ADDED))));
+        assertEventuallyListenerEventsEqual(ImmutableList.of(
+            BasicSensorEvent.ofUnchecked(SENSOR_REMOVED, entity, SENSOR_ADDED)));
     }
 
     @Test
@@ -223,16 +228,17 @@ public class EntityTypeTest extends BrooklynAppUnitTestSupport {
         entity.getMutableEntityType().removeSensor(POLICY_ADDED.getName());
         assertEquals(entity.getEntityType().getSensors(), 
                 MutableSet.builder().addAll(DEFAULT_SENSORS).remove(SENSOR_ADDED).remove(POLICY_ADDED).build().asUnmodifiable());
-        
-        TestUtils.assertEventually(
-                CollectionFunctionals.sizeSupplier(listener.events), 
-                Predicates.equalTo(2));
-        TestUtils.assertEventually(
-                Suppliers.ofInstance(listener.events), 
-                CollectionFunctionals.equalsSetOf(
-                        new BasicSensorEvent(SENSOR_REMOVED, entity, SENSOR_ADDED),
-                        new BasicSensorEvent(SENSOR_REMOVED, entity, POLICY_ADDED)
-                    ));
+
+        final RecordingSensorEventListener<?> listener = this.listener;
+        Asserts.succeedsEventually(new Runnable() {
+            @Override
+            public void run() {
+                assertEquals(Iterables.size(listener.getEvents()), 2);
+            }
+        });
+        assertEventuallyListenerEventsEqual(ImmutableList.of(
+            BasicSensorEvent.ofUnchecked(SENSOR_REMOVED, entity, SENSOR_ADDED),
+            BasicSensorEvent.ofUnchecked(SENSOR_REMOVED, entity, POLICY_ADDED)));
     }
 
     @Test

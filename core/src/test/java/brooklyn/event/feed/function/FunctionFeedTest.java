@@ -19,6 +19,7 @@
 package brooklyn.event.feed.function;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertTrue;
 
 import java.util.List;
@@ -28,32 +29,43 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.annotation.Nullable;
 
+import org.apache.brooklyn.api.entity.Feed;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.event.SensorEventListener;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.test.EntityTestUtils;
+import org.apache.brooklyn.test.entity.TestEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.entity.BrooklynAppUnitTestSupport;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.SensorEvent;
-import brooklyn.event.SensorEventListener;
+import brooklyn.entity.basic.EntityInternal;
+import brooklyn.entity.basic.EntityInternal.FeedSupport;
 import brooklyn.event.basic.Sensors;
-import brooklyn.location.Location;
-import brooklyn.location.basic.LocalhostMachineProvisioningLocation;
+
+import org.apache.brooklyn.location.basic.LocalhostMachineProvisioningLocation;
+
 import brooklyn.test.Asserts;
-import brooklyn.test.EntityTestUtils;
-import brooklyn.test.entity.TestEntity;
 
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.Callables;
 
 public class FunctionFeedTest extends BrooklynAppUnitTestSupport {
 
+    private static final Logger log = LoggerFactory.getLogger(FunctionFeedTest.class);
+    
     final static AttributeSensor<String> SENSOR_STRING = Sensors.newStringSensor("aString", "");
     final static AttributeSensor<Integer> SENSOR_INT = Sensors.newIntegerSensor("aLong", "");
 
@@ -89,6 +101,7 @@ public class FunctionFeedTest extends BrooklynAppUnitTestSupport {
                 .build();
         
         Asserts.succeedsEventually(new Runnable() {
+            @Override
             public void run() {
                 Integer val = entity.getAttribute(SENSOR_INT);
                 assertTrue(val != null && val > 2, "val=" + val);
@@ -96,6 +109,37 @@ public class FunctionFeedTest extends BrooklynAppUnitTestSupport {
         });
     }
     
+    @Test
+    public void testFeedDeDupe() throws Exception {
+        testPollsFunctionRepeatedlyToSetAttribute();
+        entity.addFeed(feed);
+        log.info("Feed 0 is: "+feed);
+        Feed feed0 = feed;
+        
+        testPollsFunctionRepeatedlyToSetAttribute();
+        entity.addFeed(feed);
+        log.info("Feed 1 is: "+feed);
+        Feed feed1 = feed;
+        Assert.assertFalse(feed1==feed0);
+
+        FeedSupport feeds = ((EntityInternal)entity).feeds();
+        Assert.assertEquals(feeds.getFeeds().size(), 1, "Wrong feed count: "+feeds.getFeeds());
+
+        // a couple extra checks, compared to the de-dupe test in other *FeedTest classes
+        Feed feedAdded = Iterables.getOnlyElement(feeds.getFeeds());
+        Assert.assertTrue(feedAdded==feed1);
+        Assert.assertFalse(feedAdded==feed0);
+    }
+    
+    @Test
+    public void testFeedDeDupeIgnoresSameObject() throws Exception {
+        testPollsFunctionRepeatedlyToSetAttribute();
+        entity.addFeed(feed);
+        assertFeedIsPolling();
+        entity.addFeed(feed);
+        assertFeedIsPollingContinuously();
+    }
+
     @Test
     public void testCallsOnSuccessWithResultOfCallable() throws Exception {
         feed = FunctionFeed.builder()
@@ -122,6 +166,7 @@ public class FunctionFeedTest extends BrooklynAppUnitTestSupport {
                 .build();
 
         Asserts.succeedsEventually(new Runnable() {
+            @Override
             public void run() {
                 String val = entity.getAttribute(SENSOR_STRING);
                 assertTrue(val != null && val.contains(errMsg), "val=" + val);
@@ -186,9 +231,11 @@ public class FunctionFeedTest extends BrooklynAppUnitTestSupport {
                 .build();
 
         Asserts.succeedsEventually(new Runnable() {
+            @Override
             public void run() {
                 assertEquals(ints.subList(0, 2), ImmutableList.of(0, 1));
-                assertEquals(strings.subList(0, 2), ImmutableList.of("0", "1"));
+                assertTrue(strings.size()>=2, "wrong strings list: "+strings);
+                assertEquals(strings.subList(0, 2), ImmutableList.of("0", "1"), "wrong strings list: "+strings);
             }});
     }
     
@@ -216,6 +263,26 @@ public class FunctionFeedTest extends BrooklynAppUnitTestSupport {
                 .onFailureOrException(Functions.<Integer>constant(null));
     }
     
+    
+    private void assertFeedIsPolling() {
+        final Integer val = entity.getAttribute(SENSOR_INT);
+        Asserts.succeedsEventually(new Runnable() {
+            @Override
+            public void run() {
+                assertNotEquals(val, entity.getAttribute(SENSOR_INT));
+            }
+        });
+    }
+    
+    private void assertFeedIsPollingContinuously() {
+        Asserts.succeedsContinually(new Runnable() {
+            @Override
+            public void run() {
+                assertFeedIsPolling();
+            }
+        });
+    }
+
     private static class IncrementingCallable implements Callable<Integer> {
         private final AtomicInteger next = new AtomicInteger(0);
         

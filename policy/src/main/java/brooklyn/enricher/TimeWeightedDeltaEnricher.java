@@ -20,20 +20,21 @@ package brooklyn.enricher;
 
 import groovy.lang.Closure;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.catalog.Catalog;
 import brooklyn.enricher.basic.AbstractTypeTransformingEnricher;
-import brooklyn.entity.Entity;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
-import brooklyn.event.SensorEvent;
+import brooklyn.enricher.basic.YamlTimeWeightedDeltaEnricher;
 import brooklyn.util.GroovyJavaMethods;
-import brooklyn.util.flags.SetFromFlag;
 import brooklyn.util.javalang.JavaClassNames;
 import brooklyn.util.time.Duration;
 
+import com.google.common.annotations.Beta;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
 
@@ -42,7 +43,13 @@ import com.google.common.base.Functions;
  * presented as a units/timeUnit based on the event timing.
  * <p>
  * NB for time (e.g. "total milliseconds consumed") use {@link TimeFractionDeltaEnricher}
+ * <p>
+ * See also {@link YamlTimeWeightedDeltaEnricher} designed for use from YAML.
+ * <p>
+ * TODO this may end up being deprecated in favour of near-duplicate code in YAML-friendly {@link YamlTimeWeightedDeltaEnricher},
+ * marking as @Beta in 0.7.0 timeframe 
  */
+@Beta
 //@Catalog(name="Time-weighted Delta", description="Converts an absolute sensor into a delta sensor "
 //        + "(i.e. the diff between the current and previous value), presented as a units/timeUnit "
 //        + "based on the event timing.")
@@ -102,8 +109,8 @@ public class TimeWeightedDeltaEnricher<T extends Number> extends AbstractTypeTra
             return;
         }
         
-        if (eventTime > lastTime) {
-            if (lastValue == null) {
+        if (eventTime > 0 && eventTime > lastTime) {
+            if (lastValue == null || lastTime <= 0) {
                 // cannot calculate time-based delta with a single value
                 if (LOG.isTraceEnabled()) LOG.trace("{} received event but no last value so will not emit, null -> {} at {}", new Object[] {this, current, eventTime}); 
             } else {
@@ -116,6 +123,9 @@ public class TimeWeightedDeltaEnricher<T extends Number> extends AbstractTypeTra
             }
             lastValue = current;
             lastTime = eventTime;
+        } else if (lastTime<0) {
+            lastValue = current;
+            lastTime = -1;
         }
     }
 }

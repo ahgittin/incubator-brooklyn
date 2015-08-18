@@ -21,21 +21,24 @@ package brooklyn.entity.rebind;
 import java.util.Collection;
 import java.util.Map;
 
-import brooklyn.basic.BrooklynObject;
-import brooklyn.basic.BrooklynObjectInternal;
-import brooklyn.catalog.CatalogItem;
-import brooklyn.entity.Entity;
-import brooklyn.location.Location;
-import brooklyn.location.basic.LocationInternal;
-import brooklyn.mementos.BrooklynMementoPersister;
-import brooklyn.mementos.CatalogItemMemento;
-import brooklyn.mementos.EnricherMemento;
-import brooklyn.mementos.EntityMemento;
-import brooklyn.mementos.LocationMemento;
-import brooklyn.mementos.Memento;
-import brooklyn.mementos.PolicyMemento;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.Policy;
+import org.apache.brooklyn.basic.BrooklynObjectInternal;
+
+import org.apache.brooklyn.api.basic.BrooklynObject;
+import org.apache.brooklyn.api.catalog.CatalogItem;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.rebind.ChangeListener;
+import org.apache.brooklyn.api.entity.rebind.PersistenceExceptionHandler;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.mementos.BrooklynMementoPersister;
+import org.apache.brooklyn.api.mementos.CatalogItemMemento;
+import org.apache.brooklyn.api.mementos.EnricherMemento;
+import org.apache.brooklyn.api.mementos.EntityMemento;
+import org.apache.brooklyn.api.mementos.LocationMemento;
+import org.apache.brooklyn.api.mementos.Memento;
+import org.apache.brooklyn.api.mementos.PolicyMemento;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.location.basic.LocationInternal;
 
 import com.google.common.collect.Maps;
 

@@ -133,7 +133,10 @@ public class Duration implements Comparable<Duration>, Serializable {
         return nanos;
     }
 
-    /** see {@link #of(Object)} and {@link Time#parseTimeString(String)} */
+    /** 
+     * See {@link Time#parseElapsedTime(String)}; 
+     * also accepts "forever" (and for those who prefer things exceedingly accurate, "practically_forever"). 
+     * Also see {@link #of(Object)}. */
     public static Duration parse(String textualDescription) {
         if (textualDescription==null) return null;
         if ("null".equalsIgnoreCase(textualDescription)) return null;
@@ -142,7 +145,7 @@ public class Duration implements Comparable<Duration>, Serializable {
         if ("practicallyforever".equalsIgnoreCase(textualDescription)) return Duration.PRACTICALLY_FOREVER;
         if ("practically_forever".equalsIgnoreCase(textualDescription)) return Duration.PRACTICALLY_FOREVER;
         
-        return new Duration(Time.parseTimeString(textualDescription), TimeUnit.MILLISECONDS);
+        return new Duration((long) Time.parseElapsedTimeAsDouble(textualDescription), TimeUnit.MILLISECONDS);
     }
 
     /** creates new {@link Duration} instance of the given length of time */
@@ -277,20 +280,38 @@ public class Duration implements Comparable<Duration>, Serializable {
         return compareTo(x) > 0;
     }
 
+    public boolean isLongerThan(Stopwatch stopwatch) {
+        return isLongerThan(Duration.millis(stopwatch.elapsed(TimeUnit.MILLISECONDS)));
+    }
+
     public boolean isShorterThan(Duration x) {
         return compareTo(x) < 0;
     }
 
+    public boolean isShorterThan(Stopwatch stopwatch) {
+        return isShorterThan(Duration.millis(stopwatch.elapsed(TimeUnit.MILLISECONDS)));
+    }
+
     /** returns the larger of this value or the argument */
-    public Duration minimum(Duration alternateMinimumValue) {
+    public Duration lowerBound(Duration alternateMinimumValue) {
         if (isShorterThan(alternateMinimumValue)) return alternateMinimumValue;
         return this;
     }
 
     /** returns the smaller of this value or the argument */
-    public Duration maximum(Duration alternateMaximumValue) {
+    public Duration upperBound(Duration alternateMaximumValue) {
         if (isLongerThan(alternateMaximumValue)) return alternateMaximumValue;
         return this;
     }
 
+    /** @deprecated since 0.7.0 use {@link #lowerBound(Duration)} */ @Deprecated
+    public Duration minimum(Duration alternateMinimumValue) {
+        return lowerBound(alternateMinimumValue);
+    }
+
+    /** @deprecated since 0.7.0 use {@link #upperBound(Duration)} */ @Deprecated
+    /** returns the smaller of this value or the argument */
+    public Duration maximum(Duration alternateMaximumValue) {
+        return upperBound(alternateMaximumValue);
+    }
 }

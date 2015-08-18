@@ -26,29 +26,35 @@ import java.util.Set;
 
 import javax.annotation.Nullable;
 
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Group;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.event.SensorEventListener;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.EnricherSpec;
+import org.apache.brooklyn.api.policy.EnricherSpec.ExtensibleEnricherSpec;
+import org.apache.brooklyn.core.util.task.ValueResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import brooklyn.config.BrooklynLogging;
+import brooklyn.config.ConfigInheritance;
 import brooklyn.config.ConfigKey;
+import brooklyn.config.BrooklynLogging.LoggingLevel;
 import brooklyn.enricher.Enrichers;
 import brooklyn.enricher.basic.AbstractEnricher;
 import brooklyn.enricher.basic.AbstractMultipleSensorAggregator;
 import brooklyn.enricher.basic.UpdatingMap;
-import brooklyn.entity.Effector;
-import brooklyn.entity.Entity;
-import brooklyn.entity.Group;
 import brooklyn.entity.basic.Lifecycle.Transition;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
-import brooklyn.event.SensorEvent;
-import brooklyn.event.SensorEventListener;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.EnricherSpec;
-import brooklyn.policy.EnricherSpec.ExtensibleEnricherSpec;
 import brooklyn.util.collections.CollectionFunctionals;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.collections.MutableSet;
+import brooklyn.util.collections.QuorumCheck;
 import brooklyn.util.guava.Functionals;
 import brooklyn.util.guava.Maybe;
 import brooklyn.util.repeat.Repeater;
@@ -70,6 +76,7 @@ public class ServiceStateLogic {
     
     public static final AttributeSensor<Boolean> SERVICE_UP = Attributes.SERVICE_UP;
     public static final AttributeSensor<Map<String,Object>> SERVICE_NOT_UP_INDICATORS = Attributes.SERVICE_NOT_UP_INDICATORS;
+    public static final AttributeSensor<Map<String,Object>> SERVICE_NOT_UP_DIAGNOSTICS = Attributes.SERVICE_NOT_UP_DIAGNOSTICS;
     
     public static final AttributeSensor<Lifecycle> SERVICE_STATE_ACTUAL = Attributes.SERVICE_STATE_ACTUAL;
     public static final AttributeSensor<Lifecycle.Transition> SERVICE_STATE_EXPECTED = Attributes.SERVICE_STATE_EXPECTED;
@@ -90,42 +97,65 @@ public class ServiceStateLogic {
     }
 
     /** update the given key in the given map sensor */
-    public static <TKey,TVal> void updateMapSensorEntry(EntityLocal entity, AttributeSensor<Map<TKey,TVal>> sensor, TKey key, TVal v) {
-        Map<TKey, TVal> map = entity.getAttribute(sensor);
-
-        boolean created = (map==null);
-        if (created) map = MutableMap.of();
+    public static <TKey,TVal> void updateMapSensorEntry(EntityLocal entity, AttributeSensor<Map<TKey,TVal>> sensor, final TKey key, final TVal v) {
+        /*
+         * Important to *not* modify the existing attribute value; must make a copy, modify that, and publish.
+         * This is because a Propagator enricher will set this same value on another entity. There was very
+         * strange behaviour when this was done for a SERVICE_UP_INDICATORS sensor - the updates done here 
+         * applied to the attribute of both entities!
+         * 
+         * Need to do this update atomically (i.e. sequentially) because there is no threading control for
+         * what is calling updateMapSensorEntity. It is called directly on start, on initialising enrichers,
+         * and in event listeners. These calls could be concurrent.
+         */
+        Function<Map<TKey,TVal>, Maybe<Map<TKey,TVal>>> modifier = new Function<Map<TKey,TVal>, Maybe<Map<TKey,TVal>>>() {
+            @Override public Maybe<Map<TKey, TVal>> apply(Map<TKey, TVal> map) {
+                boolean created = (map==null);
+                if (created) map = MutableMap.of();
                 
-        boolean changed;
-        if (v == Entities.REMOVE) {
-            changed = map.containsKey(key);
-            if (changed)
-                map.remove(key);
-        } else {
-            TVal oldV = map.get(key);
-            if (oldV==null)
-                changed = (v!=null || !map.containsKey(key));
-            else
-                changed = !oldV.equals(v);
-            if (changed)
-                map.put(key, (TVal)v);
-        }
-        if (changed || created) {
-            if (!Entities.isNoLongerManaged(entity)) { 
-                // TODO synchronize; then emit a copy to prevent CME's e.g. UrlMappingTest
-                entity.setAttribute(sensor, map);
+                boolean changed;
+                if (v == Entities.REMOVE) {
+                    changed = map.containsKey(key);
+                    if (changed) {
+                        map = MutableMap.copyOf(map);
+                        map.remove(key);
+                    }
+                } else {
+                    TVal oldV = map.get(key);
+                    if (oldV==null) {
+                        changed = (v!=null || !map.containsKey(key));
+                    } else {
+                        changed = !oldV.equals(v);
+                    }
+                    if (changed) {
+                        map = MutableMap.copyOf(map);
+                        map.put(key, (TVal)v);
+                    }
+                }
+                if (changed || created) {
+                    return Maybe.of(map);
+                } else {
+                    return Maybe.absent();
+                }
             }
+        };
+        
+        if (!Entities.isNoLongerManaged(entity)) { 
+            entity.modifyAttribute(sensor, modifier);
         }
     }
     
     public static void setExpectedState(Entity entity, Lifecycle state) {
         if (state==Lifecycle.RUNNING) {
             Boolean up = ((EntityInternal)entity).getAttribute(Attributes.SERVICE_UP);
-            if (!Boolean.TRUE.equals(up)) {
+            if (!Boolean.TRUE.equals(up) && !Boolean.TRUE.equals(Entities.isReadOnly(entity))) {
                 // pause briefly to allow any recent problem-clearing processing to complete
                 Stopwatch timer = Stopwatch.createStarted();
-                boolean nowUp = Repeater.create().every(Duration.millis(10)).limitTimeTo(Duration.millis(200)).until(entity, 
-                    EntityPredicates.attributeEqualTo(Attributes.SERVICE_UP, true)).run();
+                boolean nowUp = Repeater.create()
+                        .every(ValueResolver.REAL_QUICK_PERIOD)
+                        .limitTimeTo(ValueResolver.PRETTY_QUICK_WAIT)
+                        .until(entity, EntityPredicates.attributeEqualTo(Attributes.SERVICE_UP, true))
+                        .run();
                 if (nowUp) {
                     log.debug("Had to wait "+Duration.of(timer)+" for "+entity+" "+Attributes.SERVICE_UP+" to be true before setting "+state);
                 } else {
@@ -156,12 +186,11 @@ public class ServiceStateLogic {
         /** static only; not for instantiation */
         private ServiceNotUpLogic() {}
         
-        @SuppressWarnings({ "unchecked", "rawtypes" })
         public static final EnricherSpec<?> newEnricherForServiceUpIfNotUpIndicatorsEmpty() {
             return Enrichers.builder()
-                .transforming(SERVICE_NOT_UP_INDICATORS).publishing(Attributes.SERVICE_UP)
+                .transforming(SERVICE_NOT_UP_INDICATORS).<Object>publishing(Attributes.SERVICE_UP)
                 .suppressDuplicates(true)
-                .computing( /* cast hacks to support removing */ (Function)
+                .computing(
                     Functionals.<Map<String,?>>
                         ifNotEquals(null).<Object>apply(Functions.forPredicate(CollectionFunctionals.<String>mapSizeEquals(0)))
                         .defaultValue(Entities.REMOVE) )
@@ -223,6 +252,7 @@ public class ServiceStateLogic {
             if (uniqueTag==null) uniqueTag = DEFAULT_ENRICHER_UNIQUE_TAG;
         }
         
+        @Override
         public void setEntity(EntityLocal entity) {
             super.setEntity(entity);
             if (suppressDuplicates==null) {
@@ -256,8 +286,9 @@ public class ServiceStateLogic {
                 return Lifecycle.RUNNING;
             } else {
                 if (!Lifecycle.ON_FIRE.equals(entity.getAttribute(SERVICE_STATE_ACTUAL))) {
-                    log.warn("Setting "+entity+" "+Lifecycle.ON_FIRE+" due to problems when expected running, up="+serviceUp+", "+
-                        (problems==null || problems.isEmpty() ? "not-up-indicators: "+entity.getAttribute(SERVICE_NOT_UP_INDICATORS) : "problems: "+problems));
+                    BrooklynLogging.log(log, BrooklynLogging.levelDependingIfReadOnly(entity, LoggingLevel.WARN, LoggingLevel.TRACE, LoggingLevel.DEBUG),
+                        "Setting "+entity+" "+Lifecycle.ON_FIRE+" due to problems when expected running, up="+serviceUp+", "+
+                            (problems==null || problems.isEmpty() ? "not-up-indicators: "+entity.getAttribute(SERVICE_NOT_UP_INDICATORS) : "problems: "+problems));
                 }
                 return Lifecycle.ON_FIRE;
             }
@@ -273,7 +304,8 @@ public class ServiceStateLogic {
                 if (Boolean.FALSE.equals(up)) {
                     return Lifecycle.STOPPED;
                 } else {
-                    log.warn("Setting "+entity+" "+Lifecycle.ON_FIRE+" due to problems when expected "+stateTransition+" / up="+up+": "+problems);
+                    BrooklynLogging.log(log, BrooklynLogging.levelDependingIfReadOnly(entity, LoggingLevel.WARN, LoggingLevel.TRACE, LoggingLevel.DEBUG),
+                        "Setting "+entity+" "+Lifecycle.ON_FIRE+" due to problems when expected "+stateTransition+" / up="+up+": "+problems);
                     return Lifecycle.ON_FIRE;
                 }
             } else {
@@ -292,7 +324,8 @@ public class ServiceStateLogic {
             if (log.isTraceEnabled()) log.trace("{} setting actual state {}", this, state);
             if (((EntityInternal)entity).getManagementSupport().isNoLongerManaged()) {
                 // won't catch everything, but catches some
-                log.debug(entity+" is no longer managed when told to set actual state to "+state+"; suppressing");
+                BrooklynLogging.log(log, BrooklynLogging.levelDebugOrTraceIfReadOnly(entity),
+                    entity+" is no longer managed when told to set actual state to "+state+"; suppressing");
                 return;
             }
             emit(SERVICE_STATE_ACTUAL, (state==null ? Entities.REMOVE : state));
@@ -345,10 +378,17 @@ public class ServiceStateLogic {
         /** as {@link #DEFAULT_UNIQUE_TAG}, but when a second distinct instance is responsible for computing service up */
         public final static String DEFAULT_UNIQUE_TAG_UP = "service-not-up-indicators-from-children-and-members";
 
-        public static final ConfigKey<QuorumCheck> UP_QUORUM_CHECK = ConfigKeys.newConfigKey(QuorumCheck.class, "enricher.service_state.children_and_members.quorum.up", 
-            "Logic for checking whether this service is up, based on children and/or members, defaulting to allowing none but if there are any requiring at least one to be up", QuorumCheck.QuorumChecks.atLeastOneUnlessEmpty());
-        public static final ConfigKey<QuorumCheck> RUNNING_QUORUM_CHECK = ConfigKeys.newConfigKey(QuorumCheck.class, "enricher.service_state.children_and_members.quorum.running", 
-            "Logic for checking whether this service is healthy, based on children and/or members running, defaulting to requiring none to be ON-FIRE", QuorumCheck.QuorumChecks.all());
+        public static final ConfigKey<QuorumCheck> UP_QUORUM_CHECK = ConfigKeys.builder(QuorumCheck.class, "enricher.service_state.children_and_members.quorum.up")
+            .description("Logic for checking whether this service is up, based on children and/or members, defaulting to allowing none but if there are any requiring at least one to be up")
+            .defaultValue(QuorumCheck.QuorumChecks.atLeastOneUnlessEmpty())
+            .inheritance(ConfigInheritance.NONE)
+            .build();
+        public static final ConfigKey<QuorumCheck> RUNNING_QUORUM_CHECK = ConfigKeys.builder(QuorumCheck.class, "enricher.service_state.children_and_members.quorum.running") 
+            .description("Logic for checking whether this service is healthy, based on children and/or members running, defaulting to requiring none to be ON-FIRE")
+            .defaultValue(QuorumCheck.QuorumChecks.all())
+            .inheritance(ConfigInheritance.NONE)
+            .build();
+        // TODO items below should probably also have inheritance NONE ?
         public static final ConfigKey<Boolean> DERIVE_SERVICE_NOT_UP = ConfigKeys.newBooleanConfigKey("enricher.service_state.children_and_members.service_up.publish", "Whether to derive a service-not-up indicator from children", true);
         public static final ConfigKey<Boolean> DERIVE_SERVICE_PROBLEMS = ConfigKeys.newBooleanConfigKey("enricher.service_state.children_and_members.service_problems.publish", "Whether to derive a service-problem indicator from children", true);
         public static final ConfigKey<Boolean> IGNORE_ENTITIES_WITH_SERVICE_UP_NULL = ConfigKeys.newBooleanConfigKey("enricher.service_state.children_and_members.ignore_entities.service_up_null", "Whether to ignore children reporting null values for service up", true);
@@ -368,18 +408,20 @@ public class ServiceStateLogic {
             fromMembers = true;
             // above sets default
             super.setEntityLoadingConfig();
-            if (fromMembers && (!(entity instanceof Group))) {
+            if (isAggregatingMembers() && (!(entity instanceof Group))) {
                 if (fromChildren) fromMembers=false;
                 else throw new IllegalStateException("Cannot monitor only members for non-group entity "+entity+": "+this);
             }
             Preconditions.checkNotNull(getKeyForMapSensor());
         }
 
+        @Override
         protected void setEntityLoadingTargetConfig() {
             if (getConfig(TARGET_SENSOR)!=null)
                 throw new IllegalArgumentException("Must not set "+TARGET_SENSOR+" when using "+this);
         }
 
+        @Override
         public void setEntity(EntityLocal entity) {
             super.setEntity(entity);
             if (suppressDuplicates==null) {
@@ -419,35 +461,43 @@ public class ServiceStateLogic {
         protected void onUpdated() {
             if (entity==null || !Entities.isManaged(entity)) {
                 // either invoked during setup or entity has become unmanaged; just ignore
-                if (log.isDebugEnabled()) log.debug("Ignoring {} onUpdated when entity is not in valid state ({})", this, entity);
+                BrooklynLogging.log(log, BrooklynLogging.levelDebugOrTraceIfReadOnly(entity),
+                    "Ignoring {} onUpdated when entity is not in valid state ({})", this, entity);
                 return;
             }
 
             // override superclass to publish multiple sensors
-            if (getConfig(DERIVE_SERVICE_PROBLEMS))
+            if (getConfig(DERIVE_SERVICE_PROBLEMS)) {
                 updateMapSensor(SERVICE_PROBLEMS, computeServiceProblems());
+            }
 
-            if (getConfig(DERIVE_SERVICE_NOT_UP))
+            if (getConfig(DERIVE_SERVICE_NOT_UP)) {
                 updateMapSensor(SERVICE_NOT_UP_INDICATORS, computeServiceNotUp());
+            }
         }
 
         protected Object computeServiceNotUp() {
             Map<Entity, Boolean> values = getValues(SERVICE_UP);
             List<Entity> violators = MutableList.of();
             boolean ignoreNull = getConfig(IGNORE_ENTITIES_WITH_SERVICE_UP_NULL);
+            Set<Lifecycle> ignoreStates = getConfig(IGNORE_ENTITIES_WITH_THESE_SERVICE_STATES);
             int entries=0;
+            int numUp=0;
             for (Map.Entry<Entity, Boolean> state: values.entrySet()) {
                 if (ignoreNull && state.getValue()==null)
                     continue;
                 entries++;
-                if (!Boolean.TRUE.equals(state.getValue())) {
+                Lifecycle entityState = state.getKey().getAttribute(SERVICE_STATE_ACTUAL);
+                
+                if (Boolean.TRUE.equals(state.getValue())) numUp++;
+                else if (!ignoreStates.contains(entityState)) {
                     violators.add(state.getKey());
                 }
             }
 
             QuorumCheck qc = getConfig(UP_QUORUM_CHECK);
             if (qc!=null) {
-                if (qc.isQuorate(entries-violators.size(), entries))
+                if (qc.isQuorate(numUp, violators.size()+numUp))
                     // quorate
                     return null;
 

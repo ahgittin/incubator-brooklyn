@@ -20,6 +20,9 @@ package brooklyn.entity.drivers;
 
 import static org.testng.Assert.assertTrue;
 
+import org.apache.brooklyn.api.entity.drivers.DriverDependentEntity;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.test.entity.LocalManagementContextForTests;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -28,9 +31,7 @@ import brooklyn.entity.basic.Entities;
 import brooklyn.entity.drivers.ReflectiveEntityDriverFactoryTest.MyDriver;
 import brooklyn.entity.drivers.ReflectiveEntityDriverFactoryTest.MyDriverDependentEntity;
 import brooklyn.entity.drivers.RegistryEntityDriverFactoryTest.MyOtherSshDriver;
-import brooklyn.location.basic.SshMachineLocation;
-import brooklyn.management.ManagementContext;
-import brooklyn.test.entity.LocalManagementContextForTests;
+import org.apache.brooklyn.location.basic.SshMachineLocation;
 import brooklyn.util.collections.MutableMap;
 
 public class EntityDriverRegistryTest {

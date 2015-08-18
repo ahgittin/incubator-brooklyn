@@ -22,11 +22,12 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
 
-import brooklyn.entity.Effector;
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.core.util.http.HttpToolResponse;
+
 import brooklyn.entity.brooklynnode.BrooklynEntityMirrorImpl.RemoteEffector;
 import brooklyn.entity.effector.Effectors;
 import brooklyn.entity.effector.Effectors.EffectorBuilder;
-import brooklyn.util.http.HttpToolResponse;
 
 import com.google.common.base.Function;
 
@@ -37,19 +38,28 @@ public class RemoteEffectorBuilder {
             return input.getContentAsString();
         }
     }
+    
 
     public static Collection<Effector<String>> of(Collection<?> cfgEffectors) {
         Collection<Effector<String>> effectors = new ArrayList<Effector<String>>();
         for (Object objEff : cfgEffectors) {
             Map<?, ?> cfgEff = (Map<?, ?>)objEff;
-//            String returnTypeName = (String)cfgEff.get("returnType");
             String effName = (String)cfgEff.get("name");
             String description = (String)cfgEff.get("description");
 
-//            Class<?> returnType = getType(returnTypeName);
             EffectorBuilder<String> eff = Effectors.effector(String.class, effName);
             Collection<?> params = (Collection<?>)cfgEff.get("parameters");
 
+            /* The *return type* should NOT be included in the signature here.
+             * It might be a type known only at the mirrored brooklyn node
+             * (in which case loading it here would fail); or possibly it could
+             * be a different version of the type here, in which case the signature
+             * would look valid here, but deserializing it would fail.
+             * 
+             * Best to just pass the json representation back to the caller.
+             * (They won't be able to tell the difference between that and deserialize-then-serialize!)
+             */
+            
             if (description != null) {
                 eff.description(description);
             }
@@ -65,21 +75,11 @@ public class RemoteEffectorBuilder {
     }
 
     private static void buildParam(EffectorBuilder<String> eff, Map<?, ?> cfgParam) {
-//        String type = (String)cfgParam.get("type");
         String name = (String)cfgParam.get("name");
         String description = (String)cfgParam.get("description");
         String defaultValue = (String)cfgParam.get("defaultValue");
 
-//        Class<?> paramType = getType(type);
         eff.parameter(Object.class, name, description, defaultValue /*TypeCoercions.coerce(defaultValue, paramType)*/);
     }
-
-//    private static Class<?> getType(String type) {
-//        try {
-//            return Class.forName(type);
-//        } catch (ClassNotFoundException e) {
-//            return Object.class;
-//        }
-//    }
 
 }

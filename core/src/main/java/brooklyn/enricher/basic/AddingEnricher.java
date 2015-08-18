@@ -18,11 +18,12 @@
  */
 package brooklyn.enricher.basic;
 
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
-import brooklyn.event.SensorEvent;
-import brooklyn.event.SensorEventListener;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.event.SensorEventListener;
+
 import brooklyn.event.basic.BasicSensorEvent;
 
 /** 
@@ -61,7 +62,7 @@ public class AddingEnricher extends AbstractEnricher implements SensorEventListe
             if (source instanceof AttributeSensor) {
                 Object value = entity.getAttribute((AttributeSensor)source);
                 if (value!=null)
-                    onEvent(new BasicSensorEvent(source, entity, value));
+                    onEvent(new BasicSensorEvent(source, entity, value, -1));
             }
         }
     }

@@ -21,6 +21,12 @@ package brooklyn.event.feed.ssh;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntityInitializer;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.test.EntityTestUtils;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
@@ -31,15 +37,11 @@ import org.testng.annotations.Test;
 import brooklyn.entity.BrooklynAppUnitTestSupport;
 import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.Entities;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.entity.proxying.EntityInitializer;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.event.AttributeSensor;
+import brooklyn.entity.basic.EntityInternal;
+import brooklyn.entity.basic.EntityInternal.FeedSupport;
 import brooklyn.event.basic.Sensors;
-import brooklyn.location.basic.LocalhostMachineProvisioningLocation;
-import brooklyn.location.basic.SshMachineLocation;
-import brooklyn.test.EntityTestUtils;
-import brooklyn.test.entity.TestEntity;
+import org.apache.brooklyn.location.basic.LocalhostMachineProvisioningLocation;
+import org.apache.brooklyn.location.basic.SshMachineLocation;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.stream.Streams;
@@ -104,6 +106,20 @@ public class SshFeedIntegrationTest extends BrooklynAppUnitTestSupport {
         Assert.assertEquals(val.trim(), "hello");
     }
 
+    @Test(groups="Integration")
+    public void testFeedDeDupe() throws Exception {
+        testReturnsSshStdoutAndInfersMachine();
+        entity.addFeed(feed);
+        log.info("Feed 0 is: "+feed);
+        
+        testReturnsSshStdoutAndInfersMachine();
+        log.info("Feed 1 is: "+feed);
+        entity.addFeed(feed);
+                
+        FeedSupport feeds = ((EntityInternal)entity).feeds();
+        Assert.assertEquals(feeds.getFeeds().size(), 1, "Wrong feed count: "+feeds.getFeeds());
+    }
+    
     @Test(groups="Integration")
     public void testReturnsSshExitStatus() throws Exception {
         feed = SshFeed.builder()

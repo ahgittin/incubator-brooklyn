@@ -22,16 +22,16 @@ import org.testng.annotations.Test;
 
 import brooklyn.entity.chef.ChefLiveTestSupport;
 import brooklyn.entity.software.mysql.AbstractToyMySqlEntityTest;
-import brooklyn.location.MachineProvisioningLocation;
-import brooklyn.location.NoMachinesAvailableException;
-import brooklyn.location.basic.SshMachineLocation;
+
+import org.apache.brooklyn.api.location.MachineProvisioningLocation;
+import org.apache.brooklyn.location.basic.SshMachineLocation;
 
 public abstract class AbstractChefToyMySqlEntityLiveTest extends AbstractToyMySqlEntityTest {
 
     @Override
     // mark as live here
     @Test(groups = "Live")
-    public void testMySqlOnProvisioningLocation() throws NoMachinesAvailableException {
+    public void testMySqlOnProvisioningLocation() throws Exception {
         super.testMySqlOnProvisioningLocation();
     }
     

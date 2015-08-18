@@ -20,6 +20,11 @@ package brooklyn.entity.basic;
 
 import java.util.Map;
 
+import org.apache.brooklyn.api.location.MachineLocation;
+import org.apache.brooklyn.api.location.MachineProvisioningLocation;
+import org.apache.brooklyn.api.management.TaskAdaptable;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,11 +33,6 @@ import brooklyn.entity.basic.SoftwareProcess.RestartSoftwareParameters;
 import brooklyn.entity.basic.SoftwareProcess.RestartSoftwareParameters.RestartMachineMode;
 import brooklyn.entity.software.MachineLifecycleEffectorTasks;
 import brooklyn.entity.trait.StartableMethods;
-import brooklyn.location.MachineLocation;
-import brooklyn.location.MachineProvisioningLocation;
-import brooklyn.management.TaskAdaptable;
-import brooklyn.util.config.ConfigBag;
-import brooklyn.util.task.DynamicTasks;
 import brooklyn.util.text.Strings;
 
 import com.google.common.annotations.Beta;
@@ -48,27 +48,41 @@ public class SoftwareProcessDriverLifecycleEffectorTasks extends MachineLifecycl
     
     public void restart(ConfigBag parameters) {
         RestartMachineMode isRestartMachine = parameters.get(RestartSoftwareParameters.RESTART_MACHINE_TYPED);
-        if (isRestartMachine==null) isRestartMachine=RestartMachineMode.AUTO;
+        if (isRestartMachine==null) 
+            isRestartMachine=RestartMachineMode.AUTO;
+        if (isRestartMachine==RestartMachineMode.AUTO) 
+            isRestartMachine = getDefaultRestartStopsMachine() ? RestartMachineMode.TRUE : RestartMachineMode.FALSE; 
 
-        if (isRestartMachine==RestartMachineMode.AUTO) {
-            isRestartMachine = getDefaultRestartStopsMachine() ? RestartMachineMode.TRUE : RestartMachineMode.FALSE;
-        }
-        
         if (isRestartMachine==RestartMachineMode.TRUE) {
             log.debug("restart of "+entity()+" requested be applied at machine level");
             super.restart(parameters);
             return;
         }
         
+        DynamicTasks.queue("pre-restart", new PreRestartTask());
+
         log.debug("restart of "+entity()+" appears to have driver and hostname - doing driver-level restart");
         entity().getDriver().restart();
         
         restartChildren(parameters);
         
-        DynamicTasks.queue("post-restart", new Runnable() { public void run() {
+        DynamicTasks.queue("post-restart", new PostRestartTask());
+    }
+
+    private class PreRestartTask implements Runnable {
+        @Override
+        public void run() {
+            preRestartCustom();
+        }
+    }
+
+    private class PostRestartTask implements Runnable {
+        @Override
+        public void run() {
             postStartCustom();
+            postRestartCustom();
             ServiceStateLogic.setExpectedState(entity(), Lifecycle.RUNNING);
-        }});
+        }
     }
     
     @Override
@@ -162,10 +176,31 @@ public class SoftwareProcessDriverLifecycleEffectorTasks extends MachineLifecycl
     }
     
     @Override
+    protected void preStopConfirmCustom() {
+        super.preStopConfirmCustom();
+        
+        entity().preStopConfirmCustom();
+    }
+    
+    @Override
     protected void preStopCustom() {
         super.preStopCustom();
         
         entity().preStop();
+    }
+
+    @Override
+    protected void preRestartCustom() {
+        super.preRestartCustom();
+        
+        entity().preRestart();
+    }
+
+    @Override
+    protected void postRestartCustom() {
+        super.postRestartCustom();
+        
+        entity().postRestart();
     }
 
     @Override
@@ -208,7 +243,7 @@ public class SoftwareProcessDriverLifecycleEffectorTasks extends MachineLifecycl
         
         if (childException!=null)
             throw new IllegalStateException(result+"; but error stopping child: "+childException, childException);
-        
+
         return result;
     }
     

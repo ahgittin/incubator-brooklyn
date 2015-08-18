@@ -25,21 +25,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.entity.trait.Identifiable;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.mementos.EntityMemento;
+import org.apache.brooklyn.api.mementos.TreeNode;
+import org.apache.brooklyn.test.entity.TestApplication;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.ApplicationBuilder;
 import brooklyn.entity.basic.Entities;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.rebind.dto.MementosGenerators;
-import brooklyn.entity.trait.Identifiable;
-import brooklyn.management.ManagementContext;
-import brooklyn.mementos.EntityMemento;
-import brooklyn.mementos.TreeNode;
-import brooklyn.test.entity.TestApplication;
-import brooklyn.test.entity.TestEntity;
 import brooklyn.util.collections.MutableSet;
 
 import com.google.common.collect.ImmutableList;
@@ -142,7 +142,7 @@ public class RebindManagerSorterTest {
     private Map<String, EntityMemento> toMementos(Iterable<? extends Entity> entities) {
         Map<String, EntityMemento> result = Maps.newLinkedHashMap();
         for (Entity entity : entities) {
-            result.put(entity.getId(), MementosGenerators.newEntityMemento(entity));
+            result.put(entity.getId(), MementosGenerators.newEntityMemento(Entities.deproxy(entity)));
         }
         return result;
     }

@@ -18,12 +18,13 @@
  */
 package brooklyn.event.basic;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.management.ManagementContext;
+
 import com.google.common.reflect.TypeToken;
 
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
-import brooklyn.event.Sensor;
-import brooklyn.management.ManagementContext;
 
 /**
  * A {@link Sensor} describing an attribute that can be configured with a default value.

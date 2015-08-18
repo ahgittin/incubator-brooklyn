@@ -23,8 +23,8 @@ import groovy.lang.Closure;
 import java.util.List;
 import java.util.Map;
 
-import brooklyn.entity.Entity;
-import brooklyn.entity.ParameterType;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.ParameterType;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
@@ -38,7 +38,7 @@ public abstract class ExplicitEffector<I,T> extends AbstractEffector<T> {
     }
 
     public T call(Entity entity, Map parameters) {
-        return invokeEffector((I) entity, parameters );
+        return invokeEffector((I) entity, (Map<String,?>)parameters );
     }
 
     public abstract T invokeEffector(I trait, Map<String,?> parameters);

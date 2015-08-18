@@ -21,15 +21,16 @@ package brooklyn.test.policy;
 import java.util.Collections;
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+
 import com.google.common.reflect.TypeToken;
 
 import brooklyn.config.ConfigKey;
 import brooklyn.enricher.basic.AbstractEnricher;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.ConfigKeys;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.BasicConfigKey;
-import brooklyn.util.flags.SetFromFlag;
 
 public class TestEnricher extends AbstractEnricher {
     @SetFromFlag("confName")

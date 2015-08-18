@@ -28,22 +28,24 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.internal.ssh.SshTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.ConfigKeys;
-import brooklyn.entity.basic.EntityLocal;
 import brooklyn.event.feed.AbstractFeed;
 import brooklyn.event.feed.AttributePollHandler;
 import brooklyn.event.feed.DelegatingPollHandler;
 import brooklyn.event.feed.Poller;
-import brooklyn.location.basic.Locations;
-import brooklyn.location.basic.Machines;
-import brooklyn.location.basic.SshMachineLocation;
-import brooklyn.util.config.ConfigBag;
-import brooklyn.util.internal.ssh.SshTool;
+
+import org.apache.brooklyn.location.basic.Locations;
+import org.apache.brooklyn.location.basic.Machines;
+import org.apache.brooklyn.location.basic.SshMachineLocation;
+
 import brooklyn.util.time.Duration;
 
 import com.google.common.base.Objects;
@@ -117,6 +119,7 @@ public class SshFeed extends AbstractFeed {
         private Duration period = Duration.of(500, TimeUnit.MILLISECONDS);
         private List<SshPollConfig<?>> polls = Lists.newArrayList();
         private boolean execAsCommand = false;
+        private String uniqueTag;
         private volatile boolean built;
         
         public Builder entity(EntityLocal val) {
@@ -155,6 +158,10 @@ public class SshFeed extends AbstractFeed {
         }
         public Builder execAsScript() {
             execAsCommand = false;
+            return this;
+        }
+        public Builder uniqueTag(String uniqueTag) {
+            this.uniqueTag = uniqueTag;
             return this;
         }
         public SshFeed build() {
@@ -220,6 +227,7 @@ public class SshFeed extends AbstractFeed {
             polls.put(new SshPollIdentifier(config.getCommandSupplier(), config.getEnvSupplier()), configCopy);
         }
         setConfig(POLLS, polls);
+        initUniqueTag(builder.uniqueTag, polls.values());
     }
 
     protected SshMachineLocation getMachine() {

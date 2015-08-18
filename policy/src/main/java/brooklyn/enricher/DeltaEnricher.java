@@ -19,13 +19,15 @@
 package brooklyn.enricher;
 
 import static brooklyn.util.JavaGroovyEquivalents.elvis;
-import brooklyn.catalog.Catalog;
+
+import org.apache.brooklyn.api.catalog.Catalog;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
+
 import brooklyn.enricher.basic.AbstractTransformingEnricher;
-import brooklyn.entity.Entity;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
-import brooklyn.event.SensorEvent;
-import brooklyn.util.flags.TypeCoercions;
 
 /**
  * Converts an absolute sensor into a delta sensor (i.e. the diff between the current and previous value)

@@ -31,13 +31,11 @@ import java.util.Random;
 
 import javax.annotation.Nullable;
 
+import org.apache.brooklyn.core.util.flags.FlagUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testng.collections.Lists;
-import org.testng.collections.Maps;
 
 import brooklyn.util.exceptions.Exceptions;
-import brooklyn.util.flags.FlagUtils;
 import brooklyn.util.javalang.Serializers;
 import brooklyn.util.javalang.Serializers.ObjectReplacer;
 
@@ -47,6 +45,8 @@ import com.google.common.base.Predicates;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 /**
  * Convenience for writing out an object hierarchy.

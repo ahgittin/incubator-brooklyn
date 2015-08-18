@@ -23,23 +23,29 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.event.SensorEventListener;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.catalog.Catalog;
+import brooklyn.config.BrooklynLogging;
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
+import brooklyn.enricher.Enrichers;
 import brooklyn.entity.basic.ConfigKeys;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
-import brooklyn.event.SensorEvent;
-import brooklyn.event.SensorEventListener;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.exceptions.Exceptions;
+import brooklyn.util.text.StringPredicates;
 
 import com.google.common.base.Function;
+import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
 import com.google.common.reflect.TypeToken;
 
@@ -51,7 +57,14 @@ public class Aggregator<T,U> extends AbstractAggregator<T,U> implements SensorEv
     private static final Logger LOG = LoggerFactory.getLogger(Aggregator.class);
 
     public static final ConfigKey<Sensor<?>> SOURCE_SENSOR = ConfigKeys.newConfigKey(new TypeToken<Sensor<?>>() {}, "enricher.sourceSensor");
+    
+    @SetFromFlag("transformation")
+    public static final ConfigKey<Object> TRANSFORMATION_UNTYPED = ConfigKeys.newConfigKey(Object.class, "enricher.transformation.untyped",
+        "Specifies a transformation, as a function from a collection to the value, or as a string matching a pre-defined named transformation, "
+        + "such as 'average' (for numbers), 'sum' (for numbers), or 'list' (the default, putting any collection of items into a list)");
     public static final ConfigKey<Function<? super Collection<?>, ?>> TRANSFORMATION = ConfigKeys.newConfigKey(new TypeToken<Function<? super Collection<?>, ?>>() {}, "enricher.transformation");
+    
+    public static final ConfigKey<Boolean> EXCLUDE_BLANK = ConfigKeys.newBooleanConfigKey("enricher.aggregator.excludeBlank", "Whether explicit nulls or blank strings should be excluded (default false); this only applies if no value filter set", false);
 
     protected Sensor<T> sourceSensor;
     protected Function<? super Collection<T>, ? extends U> transformation;
@@ -69,12 +82,46 @@ public class Aggregator<T,U> extends AbstractAggregator<T,U> implements SensorEv
     protected void setEntityLoadingConfig() {
         super.setEntityLoadingConfig();
         this.sourceSensor = (Sensor<T>) getRequiredConfig(SOURCE_SENSOR);
-        this.transformation = (Function<? super Collection<T>, ? extends U>) getRequiredConfig(TRANSFORMATION);
+        
+        this.transformation = (Function<? super Collection<T>, ? extends U>) config().get(TRANSFORMATION);
+        
+        Object t1 = config().get(TRANSFORMATION_UNTYPED);
+        Function<? super Collection<?>, ?> t2 = null;
+        if (t1 instanceof String) {
+            t2 = lookupTransformation((String)t1);
+            if (t2==null) {
+                LOG.warn("Unknown transformation '"+t1+"' for "+this+"; will use default transformation");
+            }
+        }
+        
+        if (this.transformation==null) {
+            this.transformation = (Function<? super Collection<T>, ? extends U>) t2;
+        } else if (t1!=null && !Objects.equals(t2, this.transformation)) {
+            throw new IllegalStateException("Cannot supply both "+TRANSFORMATION_UNTYPED+" and "+TRANSFORMATION+" unless they are equal.");
+        }
     }
         
+    @SuppressWarnings({ "rawtypes", "unchecked" })
+    protected Function<? super Collection<?>, ?> lookupTransformation(String t1) {
+        if ("average".equalsIgnoreCase(t1)) return new Enrichers.ComputingAverage(null, null, targetSensor.getTypeToken());
+        if ("sum".equalsIgnoreCase(t1)) return new Enrichers.ComputingAverage(null, null, targetSensor.getTypeToken());
+        if ("list".equalsIgnoreCase(t1)) return new ComputingList();
+        return null;
+    }
+
+    private class ComputingList<TT> implements Function<Collection<TT>, List<TT>> {
+        @Override
+        public List<TT> apply(Collection<TT> input) {
+            if (input==null) return null;
+            return MutableList.copyOf(input).asUnmodifiable();
+        }
+        
+    }
+    
     @Override
     protected void setEntityBeforeSubscribingProducerChildrenEvents() {
-        if (LOG.isDebugEnabled()) LOG.debug("{} subscribing to children of {}", new Object[] {this, producer });
+        BrooklynLogging.log(LOG, BrooklynLogging.levelDebugOrTraceIfReadOnly(producer),
+            "{} subscribing to children of {}", this, producer);
         subscribeToChildren(producer, sourceSensor, this);
     }
 
@@ -98,7 +145,8 @@ public class Aggregator<T,U> extends AbstractAggregator<T,U> implements SensorEv
 
     @Override
     protected void onProducerAdded(Entity producer) {
-        if (LOG.isDebugEnabled()) LOG.debug("{} listening to {}", new Object[] {this, producer});
+        BrooklynLogging.log(LOG, BrooklynLogging.levelDebugOrTraceIfReadOnly(producer),
+            "{} listening to {}", this, producer);
         synchronized (values) {
             T vo = values.get(producer);
             if (vo==null) {
@@ -117,6 +165,14 @@ public class Aggregator<T,U> extends AbstractAggregator<T,U> implements SensorEv
                 if (LOG.isDebugEnabled()) LOG.debug("{} already had value ({}) for producer ({}); but that producer has just been added", new Object[] {this, vo, producer});
             }
         }
+    }
+    
+    @Override
+    protected Predicate<?> getDefaultValueFilter() {
+        if (getConfig(EXCLUDE_BLANK))
+            return StringPredicates.isNonBlank();
+        else
+            return Predicates.alwaysTrue();
     }
     
     @Override
@@ -152,6 +208,7 @@ public class Aggregator<T,U> extends AbstractAggregator<T,U> implements SensorEv
         synchronized (values) {
             // TODO Could avoid copying when filter not needed
             List<T> vs = MutableList.copyOf(Iterables.filter(values.values(), valueFilter));
+            if (transformation==null) return vs;
             return transformation.apply(vs);
         }
     }

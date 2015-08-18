@@ -18,19 +18,20 @@
  */
 package brooklyn.entity.group;
 
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.entity.proxying.ImplementedBy;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+
 import brooklyn.config.ConfigKey;
 import brooklyn.entity.basic.AbstractGroup;
 import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.EntityFactory;
 import brooklyn.entity.basic.Lifecycle;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.entity.proxying.ImplementedBy;
 import brooklyn.entity.trait.Startable;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.MapConfigKey;
 import brooklyn.event.basic.Sensors;
-import brooklyn.util.flags.SetFromFlag;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.reflect.TypeToken;

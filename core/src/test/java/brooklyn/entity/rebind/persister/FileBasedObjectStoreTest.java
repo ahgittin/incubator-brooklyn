@@ -25,13 +25,13 @@ import static org.testng.Assert.assertTrue;
 import java.io.File;
 import java.io.FileNotFoundException;
 
+import org.apache.brooklyn.api.management.ha.HighAvailabilityMode;
+import org.apache.brooklyn.test.entity.LocalManagementContextForTests;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.entity.basic.Entities;
-import brooklyn.management.ha.HighAvailabilityMode;
-import brooklyn.test.entity.LocalManagementContextForTests;
 import brooklyn.util.io.FileUtil;
 import brooklyn.util.os.Os;
 

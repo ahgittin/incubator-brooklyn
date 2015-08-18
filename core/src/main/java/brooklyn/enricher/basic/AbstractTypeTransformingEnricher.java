@@ -18,13 +18,14 @@
  */
 package brooklyn.enricher.basic;
 
-import brooklyn.entity.Entity;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
-import brooklyn.event.SensorEventListener;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.event.SensorEventListener;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+
 import brooklyn.event.basic.BasicSensorEvent;
-import brooklyn.util.flags.SetFromFlag;
 
 /**
  * Convenience base for transforming a single sensor into a single new sensor of the same type
@@ -61,7 +62,7 @@ public abstract class AbstractTypeTransformingEnricher<T,U> extends AbstractEnri
             Object value = producer.getAttribute((AttributeSensor)source);
             // TODO Aled didn't you write a convenience to "subscribeAndRunIfSet" ? (-Alex)
             if (value!=null)
-                onEvent(new BasicSensorEvent(source, producer, value));
+                onEvent(new BasicSensorEvent(source, producer, value, -1));
         }
     }
 }

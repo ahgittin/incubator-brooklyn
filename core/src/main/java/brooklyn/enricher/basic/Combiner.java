@@ -27,18 +27,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.event.SensorEventListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.catalog.Catalog;
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.ConfigKeys;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
-import brooklyn.event.SensorEvent;
-import brooklyn.event.SensorEventListener;
 import brooklyn.event.basic.BasicSensorEvent;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.exceptions.Exceptions;
@@ -103,7 +102,7 @@ public class Combiner<T,U> extends AbstractEnricher implements SensorEventListen
                 // TODO Aled didn't you write a convenience to "subscribeAndRunIfSet" ? (-Alex)
                 //      Unfortunately not yet!
                 if (value != null) {
-                    onEvent(new BasicSensorEvent(sourceSensor, producer, value));
+                    onEvent(new BasicSensorEvent(sourceSensor, producer, value, -1));
                 }
             }
         }

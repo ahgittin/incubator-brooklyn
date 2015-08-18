@@ -21,6 +21,14 @@ package brooklyn.entity.effector;
 import java.util.List;
 import java.util.concurrent.Callable;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.management.HasTaskChildren;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.core.management.internal.ManagementContextInternal;
+import org.apache.brooklyn.core.util.task.Tasks;
+import org.apache.brooklyn.test.TestUtils;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
@@ -29,19 +37,13 @@ import org.testng.annotations.Test;
 
 import brooklyn.entity.BrooklynAppUnitTestSupport;
 import brooklyn.entity.basic.Entities;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.trait.FailingEntity;
 import brooklyn.entity.trait.Startable;
-import brooklyn.location.basic.SimulatedLocation;
-import brooklyn.management.HasTaskChildren;
-import brooklyn.management.Task;
-import brooklyn.management.internal.ManagementContextInternal;
-import brooklyn.test.TestUtils;
-import brooklyn.test.entity.TestEntity;
+
+import org.apache.brooklyn.location.basic.SimulatedLocation;
+
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.exceptions.Exceptions;
-import brooklyn.util.task.Tasks;
 
 import com.google.common.collect.ImmutableList;
 

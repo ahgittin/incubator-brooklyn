@@ -21,8 +21,10 @@ package brooklyn.entity.rebind.dto;
 import java.io.Serializable;
 import java.util.Map;
 
+import org.apache.brooklyn.api.mementos.PolicyMemento;
+
 import brooklyn.entity.basic.Entities;
-import brooklyn.mementos.PolicyMemento;
+import brooklyn.entity.basic.Sanitizer;
 
 import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.collect.Maps;
@@ -87,6 +89,6 @@ public class BasicPolicyMemento extends AbstractMemento implements PolicyMemento
     
     @Override
     protected ToStringHelper newVerboseStringHelper() {
-        return super.newVerboseStringHelper().add("config", Entities.sanitize(getConfig()));
+        return super.newVerboseStringHelper().add("config", Sanitizer.sanitize(getConfig()));
     }
 }

@@ -18,10 +18,12 @@
  */
 package brooklyn.entity.driver;
 
-import brooklyn.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.location.Location;
+
 import brooklyn.entity.basic.SoftwareProcessDriver;
-import brooklyn.location.Location;
-import brooklyn.location.basic.SshMachineLocation;
+
+import org.apache.brooklyn.location.basic.SshMachineLocation;
 
 public class MockSshDriver implements SoftwareProcessDriver {
 

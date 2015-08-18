@@ -20,6 +20,8 @@ package brooklyn.entity.basic;
 
 import java.util.List;
 
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
@@ -27,7 +29,6 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.entity.BrooklynAppUnitTestSupport;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.event.basic.ListConfigKey;
 import brooklyn.event.basic.ListConfigKey.ListModifications;
 import brooklyn.event.basic.MapConfigKey;
@@ -36,7 +37,6 @@ import brooklyn.event.basic.SetConfigKey;
 import brooklyn.event.basic.SetConfigKey.SetModifications;
 import brooklyn.event.basic.StructuredConfigKey.StructuredModification;
 import brooklyn.event.basic.SubElementConfigKey;
-import brooklyn.test.entity.TestEntity;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.collections.MutableSet;

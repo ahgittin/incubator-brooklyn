@@ -26,11 +26,16 @@
     <parent>
         <groupId>org.apache.brooklyn.example</groupId>
         <artifactId>brooklyn-examples-webapps-parent</artifactId>
-        <version>0.7.0-SNAPSHOT</version> <!-- BROOKLYN_VERSION -->
+        <version>0.8.0-SNAPSHOT</version> <!-- BROOKLYN_VERSION -->
         <relativePath>../pom.xml</relativePath>
     </parent>
 
     <dependencies>
+      <dependency>
+        <groupId>javax.servlet</groupId>
+        <artifactId>javax.servlet-api</artifactId>
+      </dependency>
+
       <!-- The riak artifact has a dependency on jackson 2.2.2, but actually requires 2.4.2 to run... -->
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
@@ -46,11 +51,25 @@
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-databind</artifactId>
         <version>${fasterxml.jackson.version}</version>
+        <exclusions>
+            <!-- Dependency versions mismatch between transitive dependencies, declare explicitly -->
+            <exclusion>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-annotations</artifactId>
+            </exclusion>
+        </exclusions>
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.datatype</groupId>
         <artifactId>jackson-datatype-joda</artifactId>
         <version>${fasterxml.jackson.version}</version>
+        <exclusions>
+            <!-- Dependency versions mismatch between transitive dependencies, declare explicitly -->
+            <exclusion>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-annotations</artifactId>
+            </exclusion>
+        </exclusions>
       </dependency>
         <dependency>
             <groupId>mysql</groupId>
@@ -66,6 +85,21 @@
             <groupId>com.basho.riak</groupId>
             <artifactId>riak-client</artifactId>
             <version>${riak.version}</version>
+            <exclusions>
+                <!-- Dependency versions mismatch between transitive dependencies, declare explicitly -->
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-annotations</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.datatype</groupId>
+                    <artifactId>jackson-datatype-joda</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
     </dependencies>
 

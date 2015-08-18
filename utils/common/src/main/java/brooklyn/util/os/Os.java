@@ -231,13 +231,18 @@ public class Os {
      */
     @Beta
     public static DeletionResult deleteRecursively(File dir, boolean skipSafetyChecks) {
+        if (dir==null) return new DeletionResult(null, true, null);
+        
         try {
-            if (dir==null) return new DeletionResult(null, true, null);
-            
             if (!skipSafetyChecks) checkSafe(dir);
 
             FileUtils.deleteDirectory(dir);
             return new DeletionResult(dir, true, null);
+        } catch (IllegalArgumentException e) {
+            // See exception reported in https://issues.apache.org/jira/browse/BROOKLYN-72
+            // If another thread is changing the contents of the directory at the same time as
+            // we delete it, then can get this exception.
+            return new DeletionResult(dir, false, e);
         } catch (IOException e) {
             return new DeletionResult(dir, false, e);
         }
@@ -518,10 +523,10 @@ public class Os {
      * either prefix or ext may be null; 
      * if ext is non-empty and not > 4 chars and not starting with a ., then a dot will be inserted */
     public static File newTempFile(String prefix, String ext) {
-        String sanitizedPrefix = (prefix!=null ? prefix + "-" : "");
-        String sanitizedExt = (ext!=null ? ext.startsWith(".") || ext.length()>4 ? ext : "."+ext : "");
+        String sanitizedPrefix = (Strings.isNonEmpty(prefix) ? Strings.makeValidFilename(prefix) + "-" : "");
+        String extWithPrecedingSeparator = (Strings.isNonEmpty(ext) ? ext.startsWith(".") || ext.length()>4 ? ext : "."+ext : "");
         try {
-            File tempFile = File.createTempFile(sanitizedPrefix, sanitizedExt, new File(tmp()));
+            File tempFile = File.createTempFile(sanitizedPrefix, extWithPrecedingSeparator, new File(tmp()));
             tempFile.deleteOnExit();
             return tempFile;
         } catch (IOException e) {

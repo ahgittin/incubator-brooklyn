@@ -27,35 +27,40 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
+import org.apache.brooklyn.api.entity.Application;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.rebind.BrooklynObjectType;
+import org.apache.brooklyn.api.entity.rebind.RebindExceptionHandler;
+import org.apache.brooklyn.api.entity.trait.Identifiable;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.management.ha.HighAvailabilityMode;
+import org.apache.brooklyn.api.management.ha.ManagementNodeState;
+import org.apache.brooklyn.api.mementos.BrooklynMemento;
+import org.apache.brooklyn.api.mementos.BrooklynMementoRawData;
+import org.apache.brooklyn.core.management.ha.ManagementPlaneSyncRecordPersisterToObjectStore;
+import org.apache.brooklyn.core.management.internal.LocalManagementContext;
+import org.apache.brooklyn.core.management.internal.ManagementContextInternal;
+import org.apache.brooklyn.test.entity.LocalManagementContextForTests;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testng.collections.Maps;
 
 import brooklyn.config.BrooklynProperties;
 import brooklyn.config.BrooklynServerConfig;
-import brooklyn.entity.Application;
-import brooklyn.entity.Entity;
 import brooklyn.entity.rebind.Dumpers.Pointer;
 import brooklyn.entity.rebind.dto.MementosGenerators;
 import brooklyn.entity.rebind.persister.BrooklynMementoPersisterToObjectStore;
 import brooklyn.entity.rebind.persister.FileBasedObjectStore;
 import brooklyn.entity.rebind.persister.PersistMode;
 import brooklyn.entity.rebind.persister.PersistenceObjectStore;
-import brooklyn.entity.trait.Identifiable;
-import brooklyn.location.Location;
-import brooklyn.management.ManagementContext;
-import brooklyn.management.ha.HighAvailabilityMode;
-import brooklyn.management.ha.ManagementNodeState;
-import brooklyn.management.ha.ManagementPlaneSyncRecordPersisterToObjectStore;
-import brooklyn.management.internal.LocalManagementContext;
-import brooklyn.management.internal.ManagementContextInternal;
-import brooklyn.mementos.BrooklynMemento;
-import brooklyn.test.entity.LocalManagementContextForTests;
+import brooklyn.util.io.FileUtil;
 import brooklyn.util.javalang.Serializers;
 import brooklyn.util.javalang.Serializers.ObjectReplacer;
 import brooklyn.util.time.Duration;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Maps;
 
 public class RebindTestUtils {
 
@@ -142,6 +147,7 @@ public class RebindTestUtils {
         PersistenceObjectStore objectStore;
         Duration persistPeriod = Duration.millis(100);
         boolean forLive;
+        boolean enableOsgi = false;
         boolean emptyCatalog;
         
         ManagementContextBuilder(File mementoDir, ClassLoader classLoader) {
@@ -175,6 +181,11 @@ public class RebindTestUtils {
             return this;
         }
 
+        public ManagementContextBuilder enableOsgi(boolean val) {
+            this.enableOsgi = val;
+            return this;
+        }
+
         public ManagementContextBuilder emptyCatalog() {
             this.emptyCatalog = true;
             return this;
@@ -191,12 +202,12 @@ public class RebindTestUtils {
                     ? this.properties
                     : BrooklynProperties.Factory.newDefault();
             if (this.emptyCatalog) {
-                properties.putIfAbsent(BrooklynServerConfig.BROOKLYN_CATALOG_URL, "classpath://brooklyn-catalog-empty.xml");
+                properties.putIfAbsent(BrooklynServerConfig.BROOKLYN_CATALOG_URL, ManagementContextInternal.EMPTY_CATALOG_URL);
             }
             if (forLive) {
                 unstarted = new LocalManagementContext(properties);
             } else {
-                unstarted = new LocalManagementContextForTests(properties);
+                unstarted = LocalManagementContextForTests.builder(true).useProperties(properties).disableOsgi(!enableOsgi).build();
             }
             
             objectStore.injectManagementContext(unstarted);
@@ -221,71 +232,197 @@ public class RebindTestUtils {
 
     }
 
+    /**
+     * Convenience for common call; delegates to {@link #rebind(RebindOptions)}
+     */
     public static Application rebind(File mementoDir, ClassLoader classLoader) throws Exception {
-        return rebind(mementoDir, classLoader, null);
+        return rebind(RebindOptions.create()
+                .mementoDir(mementoDir)
+                .classLoader(classLoader));
     }
 
-    public static Application rebind(LocalManagementContext newManagementContext, ClassLoader classLoader) throws Exception {
-        return rebind(newManagementContext, classLoader, null);
-    }
-
-    public static Application rebind(LocalManagementContext newManagementContext, ClassLoader classLoader, RebindExceptionHandler exceptionHandler) throws Exception {
-        Collection<Application> newApps = rebindAll(newManagementContext, classLoader, exceptionHandler);
-        if (newApps.isEmpty()) throw new IllegalStateException("Application could not be rebinded; serialization probably failed");
-        return Iterables.getFirst(newApps, null);
-    }
-
+    /**
+     * @deprecated since 0.7.0; use {@link #rebind(RebindOptions)}
+     */
+    @Deprecated
     public static Application rebind(File mementoDir, ClassLoader classLoader, RebindExceptionHandler exceptionHandler) throws Exception {
-        Collection<Application> newApps = rebindAll(mementoDir, classLoader, exceptionHandler);
-        if (newApps.isEmpty()) throw new IllegalStateException("Application could not be rebinded; serialization probably failed");
-        return Iterables.getFirst(newApps, null);
+        return rebind(RebindOptions.create()
+                .mementoDir(mementoDir)
+                .classLoader(classLoader)
+                .exceptionHandler(exceptionHandler));
     }
 
-    public static Collection<Application> rebindAll(File mementoDir, ClassLoader classLoader) throws Exception {
-        return rebindAll(mementoDir, classLoader, null);
+    /**
+     * @deprecated since 0.7.0; use {@link #rebind(RebindOptions)}
+     */
+    @Deprecated
+    public static Application rebind(ManagementContext newManagementContext, ClassLoader classLoader) throws Exception {
+        return rebind(RebindOptions.create()
+                .newManagementContext(newManagementContext)
+                .classLoader(classLoader));
     }
 
-    public static Collection<Application> rebindAll(File mementoDir, ClassLoader classLoader, RebindExceptionHandler exceptionHandler) throws Exception {
-        LOG.info("Rebinding app, using directory "+mementoDir);
-        return rebindAll(newPersistingManagementContextUnstarted(mementoDir, classLoader), classLoader, exceptionHandler);
+    /**
+     * @deprecated since 0.7.0; use {@link #rebind(RebindOptions)}
+     */
+    @Deprecated
+    public static Application rebind(ManagementContext newManagementContext, ClassLoader classLoader, RebindExceptionHandler exceptionHandler) throws Exception {
+        return rebind(RebindOptions.create()
+                .newManagementContext(newManagementContext)
+                .classLoader(classLoader)
+                .exceptionHandler(exceptionHandler));
+    }
+
+    /**
+     * @deprecated since 0.7.0; use {@link #rebind(RebindOptions)}
+     */
+    @Deprecated
+    public static Application rebind(ManagementContext newManagementContext, File mementoDir, ClassLoader classLoader) throws Exception {
+        return rebind(RebindOptions.create()
+                .newManagementContext(newManagementContext)
+                .mementoDir(mementoDir)
+                .classLoader(classLoader));
+    }
+
+    /**
+     * @deprecated since 0.7.0; use {@link #rebind(RebindOptions)}
+     */
+    @Deprecated
+    public static Application rebind(ManagementContext newManagementContext, File mementoDir, ClassLoader classLoader, RebindExceptionHandler exceptionHandler) throws Exception {
+        return rebind(RebindOptions.create()
+                .newManagementContext(newManagementContext)
+                .mementoDir(mementoDir)
+                .classLoader(classLoader)
+                .exceptionHandler(exceptionHandler));
     }
     
-    public static Collection<Application> rebindAll(LocalManagementContext newManagementContext, ClassLoader classLoader, RebindExceptionHandler exceptionHandler) throws Exception {
-        LOG.info("Rebinding app");
-
-        List<Application> newApps = newManagementContext.getRebindManager().rebind(classLoader, exceptionHandler, ManagementNodeState.MASTER);
-        
-        if (newApps.isEmpty()) throw new IllegalStateException("Application could not be rebinded; serialization probably failed");
-        newManagementContext.getRebindManager().startPersistence();
-        return newApps;
-    }
-
-    public static Application rebind(ManagementContext newManagementContext, File mementoDir, ClassLoader classLoader) throws Exception {
-        return rebind(newManagementContext, mementoDir, classLoader, null);
-    }
-
-    public static Application rebind(ManagementContext newManagementContext, File mementoDir, ClassLoader classLoader, RebindExceptionHandler exceptionHandler) throws Exception {
-        PersistenceObjectStore objectStore = new FileBasedObjectStore(mementoDir);
-        objectStore.injectManagementContext(newManagementContext);
-        objectStore.prepareForSharedUse(PersistMode.AUTO, HighAvailabilityMode.DISABLED);
-        return rebind(newManagementContext, mementoDir, classLoader, exceptionHandler, objectStore);
-    }
+    /**
+     * @deprecated since 0.7.0; use {@link #rebind(RebindOptions)}
+     */
+    @Deprecated
     public static Application rebind(ManagementContext newManagementContext, File mementoDir,
-                                     ClassLoader classLoader, RebindExceptionHandler exceptionHandler, PersistenceObjectStore objectStore) throws Exception {
-        return Iterables.getFirst(rebindAll(newManagementContext, mementoDir, classLoader, exceptionHandler, objectStore), null);
+            ClassLoader classLoader, RebindExceptionHandler exceptionHandler, PersistenceObjectStore objectStore) throws Exception {
+        return rebind(RebindOptions.create()
+                .newManagementContext(newManagementContext)
+                .mementoDir(mementoDir)
+                .classLoader(classLoader)
+                .exceptionHandler(exceptionHandler)
+                .objectStore(objectStore));
     }
+    
+    public static Application rebind(RebindOptions options) throws Exception {
+        Collection<Application> newApps = rebindAll(options);
+        if (newApps.isEmpty()) throw new IllegalStateException("Application could not be rebinded; serialization probably failed");
+        return Iterables.getFirst(newApps, null);
+    }
+
+
+    /**
+     * @deprecated since 0.7.0; use {@link #rebindAll(RebindOptions)}
+     */
+    @Deprecated
+    public static Collection<Application> rebindAll(File mementoDir, ClassLoader classLoader) throws Exception {
+        return rebindAll(RebindOptions.create()
+                .mementoDir(mementoDir)
+                .classLoader(classLoader));
+    }
+
+    /**
+     * @deprecated since 0.7.0; use {@link #rebind(RebindOptions)}
+     */
+    @Deprecated
+    public static Collection<Application> rebindAll(File mementoDir, ClassLoader classLoader, RebindExceptionHandler exceptionHandler) throws Exception {
+        return rebindAll(RebindOptions.create()
+                .mementoDir(mementoDir)
+                .classLoader(classLoader)
+                .exceptionHandler(exceptionHandler));
+    }
+    
+    /**
+     * @deprecated since 0.7.0; use {@link #rebind(RebindOptions)}
+     */
+    @Deprecated
+    public static Collection<Application> rebindAll(LocalManagementContext newManagementContext, ClassLoader classLoader, RebindExceptionHandler exceptionHandler) throws Exception {
+        return rebindAll(RebindOptions.create()
+                .newManagementContext(newManagementContext)
+                .classLoader(classLoader)
+                .exceptionHandler(exceptionHandler));
+    }
+
+    /**
+     * @deprecated since 0.7.0; use {@link #rebind(RebindOptions)}
+     */
+    @Deprecated
     public static Collection<Application> rebindAll(ManagementContext newManagementContext, File mementoDir, ClassLoader classLoader) throws Exception {
-        return rebindAll(newManagementContext, mementoDir, classLoader, null, new FileBasedObjectStore(mementoDir));
+        return rebindAll(RebindOptions.create()
+                .newManagementContext(newManagementContext)
+                .mementoDir(mementoDir)
+                .classLoader(classLoader));
     }
 
+    /**
+     * @deprecated since 0.7.0; use {@link #rebind(RebindOptions)}
+     */
+    @Deprecated
     public static Collection<Application> rebindAll(ManagementContext newManagementContext, File mementoDir, ClassLoader classLoader, RebindExceptionHandler exceptionHandler, PersistenceObjectStore objectStore) throws Exception {
-        LOG.info("Rebinding app, using directory "+mementoDir);
+        return rebindAll(RebindOptions.create()
+                .newManagementContext(newManagementContext)
+                .mementoDir(mementoDir)
+                .classLoader(classLoader)
+                .exceptionHandler(exceptionHandler)
+                .objectStore(objectStore));
+    }
 
-        BrooklynMementoPersisterToObjectStore newPersister = new BrooklynMementoPersisterToObjectStore(
-                objectStore,
-                ((ManagementContextInternal)newManagementContext).getBrooklynProperties(),
-                classLoader);
-        newManagementContext.getRebindManager().setPersister(newPersister, PersistenceExceptionHandlerImpl.builder().build());
+    public static Collection<Application> rebindAll(RebindOptions options) throws Exception {
+        File mementoDir = options.mementoDir;
+        File mementoDirBackup = options.mementoDirBackup;
+        ClassLoader classLoader = checkNotNull(options.classLoader, "classLoader");
+        ManagementContextInternal origManagementContext = (ManagementContextInternal) options.origManagementContext;
+        ManagementContextInternal newManagementContext = (ManagementContextInternal) options.newManagementContext;
+        PersistenceObjectStore objectStore = options.objectStore;
+        RebindExceptionHandler exceptionHandler = options.exceptionHandler;
+        boolean hasPersister = newManagementContext != null && newManagementContext.getRebindManager().getPersister() != null;
+        boolean checkSerializable = options.checkSerializable;
+        boolean terminateOrigManagementContext = options.terminateOrigManagementContext;
+        
+        LOG.info("Rebinding app, using mementoDir " + mementoDir + "; object store " + objectStore);
+
+        if (newManagementContext == null) {
+            // TODO Could use empty properties, to save reading brooklyn.properties file.
+            // Would that affect any tests?
+            newManagementContext = new LocalManagementContextForTests(BrooklynProperties.Factory.newDefault());
+        }
+        if (!hasPersister) {
+            if (objectStore == null) {
+                objectStore = new FileBasedObjectStore(checkNotNull(mementoDir, "mementoDir and objectStore must not both be null"));
+            }
+            objectStore.injectManagementContext(newManagementContext);
+            objectStore.prepareForSharedUse(PersistMode.AUTO, HighAvailabilityMode.DISABLED);
+            
+            BrooklynMementoPersisterToObjectStore newPersister = new BrooklynMementoPersisterToObjectStore(
+                    objectStore,
+                    newManagementContext.getBrooklynProperties(),
+                    classLoader);
+            newManagementContext.getRebindManager().setPersister(newPersister, PersistenceExceptionHandlerImpl.builder().build());
+        } else {
+            if (objectStore != null) throw new IllegalStateException("Must not supply ManagementContext with persister and an object store");
+        }
+        
+        if (checkSerializable) {
+            checkNotNull(origManagementContext, "must supply origManagementContext with checkSerializable");
+            RebindTestUtils.checkCurrentMementoSerializable(origManagementContext);
+        }
+
+        if (terminateOrigManagementContext) {
+            checkNotNull(origManagementContext, "must supply origManagementContext with terminateOrigManagementContext");
+            origManagementContext.terminate();
+        }
+        
+        if (mementoDirBackup != null) {
+            FileUtil.copyDir(mementoDir, mementoDirBackup);
+            FileUtil.setFilePermissionsTo700(mementoDirBackup);
+        }
+        
         List<Application> newApps = newManagementContext.getRebindManager().rebind(classLoader, exceptionHandler, ManagementNodeState.MASTER);
         newManagementContext.getRebindManager().startPersistence();
         return newApps;
@@ -296,11 +433,49 @@ public class RebindTestUtils {
     }
 
     public static void waitForPersisted(ManagementContext managementContext) throws InterruptedException, TimeoutException {
-        managementContext.getRebindManager().waitForPendingComplete(TIMEOUT);
+        managementContext.getRebindManager().waitForPendingComplete(TIMEOUT, true);
     }
 
     public static void checkCurrentMementoSerializable(Application app) throws Exception {
-        BrooklynMemento memento = MementosGenerators.newBrooklynMemento(app.getManagementContext());
+        checkCurrentMementoSerializable(app.getManagementContext());
+    }
+    
+    public static void checkCurrentMementoSerializable(ManagementContext mgmt) throws Exception {
+        BrooklynMemento memento = MementosGenerators.newBrooklynMemento(mgmt);
         serializeAndDeserialize(memento);
+    }
+    
+    /**
+     * Dumps out the persisted mementos that are at the given directory.
+     * 
+     * Binds to the persisted state (as a "hot standby") to load the raw data (as strings), and to write out the
+     * entity, location, policy, enricher, feed and catalog-item data.
+     * 
+     * @param dir The directory containing the persisted state
+     */
+    public static void dumpMementoDir(File dir) {
+        LocalManagementContextForTests mgmt = new LocalManagementContextForTests(BrooklynProperties.Factory.newEmpty());
+        FileBasedObjectStore store = null;
+        BrooklynMementoPersisterToObjectStore persister = null;
+        try {
+            store = new FileBasedObjectStore(dir);
+            store.injectManagementContext(mgmt);
+            store.prepareForSharedUse(PersistMode.AUTO, HighAvailabilityMode.HOT_STANDBY);
+            persister = new BrooklynMementoPersisterToObjectStore(store, BrooklynProperties.Factory.newEmpty(), RebindTestUtils.class.getClassLoader());
+            BrooklynMementoRawData data = persister.loadMementoRawData(RebindExceptionHandlerImpl.builder().build());
+            List<BrooklynObjectType> types = ImmutableList.of(BrooklynObjectType.ENTITY, BrooklynObjectType.LOCATION, 
+                    BrooklynObjectType.POLICY, BrooklynObjectType.ENRICHER, BrooklynObjectType.FEED, 
+                    BrooklynObjectType.CATALOG_ITEM);
+            for (BrooklynObjectType type : types) {
+                LOG.info(type+" ("+data.getObjectsOfType(type).keySet()+"):");
+                for (Map.Entry<String, String> entry : data.getObjectsOfType(type).entrySet()) {
+                    LOG.info("\t"+type+" "+entry.getKey()+": "+entry.getValue());
+                }
+            }
+        } finally {
+            if (persister != null) persister.stop(false);
+            if (store != null) store.close();
+            mgmt.terminate();
+        }
     }
 }

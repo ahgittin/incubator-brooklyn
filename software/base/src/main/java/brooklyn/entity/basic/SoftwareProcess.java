@@ -18,21 +18,26 @@
  */
 package brooklyn.entity.basic;
 
+import java.util.Collection;
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.location.MachineProvisioningLocation;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
+import brooklyn.entity.basic.Lifecycle.Transition;
+import brooklyn.entity.annotation.Effector;
 import brooklyn.entity.trait.Startable;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.AttributeSensorAndConfigKey;
 import brooklyn.event.basic.MapConfigKey;
 import brooklyn.event.basic.Sensors;
-import brooklyn.location.MachineProvisioningLocation;
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.flags.SetFromFlag;
 import brooklyn.util.time.Duration;
 
 import com.google.common.annotations.Beta;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.reflect.TypeToken;
 
 public interface SoftwareProcess extends Entity, Startable {
@@ -41,6 +46,13 @@ public interface SoftwareProcess extends Entity, Startable {
     AttributeSensor<String> ADDRESS = Attributes.ADDRESS;
     AttributeSensor<String> SUBNET_HOSTNAME = Attributes.SUBNET_HOSTNAME;
     AttributeSensor<String> SUBNET_ADDRESS = Attributes.SUBNET_ADDRESS;
+
+    @SuppressWarnings("serial")
+    ConfigKey<Collection<Integer>> REQUIRED_OPEN_LOGIN_PORTS = ConfigKeys.newConfigKey(
+            new TypeToken<Collection<Integer>>() {},
+            "requiredOpenLoginPorts",
+            "The port(s) to be opened, to allow login",
+            ImmutableSet.of(22));
 
     @SetFromFlag("startTimeout")
     ConfigKey<Duration> START_TIMEOUT = BrooklynConfigKeys.START_TIMEOUT;
@@ -66,11 +78,14 @@ public interface SoftwareProcess extends Entity, Startable {
     @SetFromFlag("launchLatch")
     ConfigKey<Boolean> LAUNCH_LATCH = BrooklynConfigKeys.LAUNCH_LATCH;
 
-    @SetFromFlag("entityStarted")
-    ConfigKey<Boolean> ENTITY_STARTED = BrooklynConfigKeys.ENTITY_STARTED;
+    @SetFromFlag("skipStart")
+    ConfigKey<Boolean> ENTITY_STARTED = BrooklynConfigKeys.SKIP_ENTITY_START;
+
+    @SetFromFlag("skipStartIfRunning")
+    ConfigKey<Boolean> SKIP_ENTITY_START_IF_RUNNING = BrooklynConfigKeys.SKIP_ENTITY_START_IF_RUNNING;
 
     @SetFromFlag("skipInstall")
-    ConfigKey<Boolean> SKIP_INSTALLATION = BrooklynConfigKeys.SKIP_INSTALLATION;
+    ConfigKey<Boolean> SKIP_INSTALLATION = BrooklynConfigKeys.SKIP_ENTITY_INSTALLATION;
 
     @SetFromFlag("preInstallCommand")
     ConfigKey<String> PRE_INSTALL_COMMAND = BrooklynConfigKeys.PRE_INSTALL_COMMAND;
@@ -108,6 +123,47 @@ public interface SoftwareProcess extends Entity, Startable {
     AttributeSensorAndConfigKey<String,String> RUN_DIR = BrooklynConfigKeys.RUN_DIR;
     @Deprecated
     ConfigKey<String> SUGGESTED_RUN_DIR = BrooklynConfigKeys.SUGGESTED_RUN_DIR;
+
+    public static final ConfigKey<Boolean> OPEN_IPTABLES = ConfigKeys.newBooleanConfigKey("openIptables", 
+            "Whether to open the INBOUND_PORTS via iptables rules; " +
+            "if true then ssh in to run iptables commands, as part of machine provisioning", false);
+
+    public static final ConfigKey<Boolean> STOP_IPTABLES = ConfigKeys.newBooleanConfigKey("stopIptables", 
+            "Whether to stop iptables entirely; " +
+            "if true then ssh in to stop the iptables service, as part of machine provisioning", false);
+
+    public static final ConfigKey<Boolean> DONT_REQUIRE_TTY_FOR_SUDO = ConfigKeys.newBooleanConfigKey("dontRequireTtyForSudo", 
+            "Whether to explicitly set /etc/sudoers, so don't need tty (will leave unchanged if 'false'); " +
+            "some machines require a tty for sudo; brooklyn by default does not use a tty " +
+            "(so that it can get separate error+stdout streams); you can enable a tty as an " +
+            "option to every ssh command, or you can do it once and " +
+            "modify the machine so that a tty is not subsequently required.",
+            false);
+    
+    /**
+     * Files to be copied to the server before pre-install.
+     * <p>
+     * Map of {@code classpath://foo/file.txt} (or other url) source to destination path,
+     * as {@code subdir/file} relative to installation directory or {@code /absolute/path/to/file}.
+     *
+     * @see #PRE_INSTALL_TEMPLATES
+     */
+    @Beta
+    @SuppressWarnings("serial")
+    @SetFromFlag("preInstallFiles")
+    ConfigKey<Map<String, String>> PRE_INSTALL_FILES = ConfigKeys.newConfigKey(new TypeToken<Map<String, String>>() { },
+            "files.preinstall", "Mapping of files, to be copied before install, to destination name relative to installDir");
+
+    /**
+     * Templates to be filled in and then copied to the server before install.
+     *
+     * @see #PRE_INSTALL_FILES
+     */
+    @Beta
+    @SuppressWarnings("serial")
+    @SetFromFlag("preInstallTemplates")
+    ConfigKey<Map<String, String>> PRE_INSTALL_TEMPLATES = ConfigKeys.newConfigKey(new TypeToken<Map<String, String>>() { },
+            "templates.preinstall", "Mapping of templates, to be filled in and copied before pre-install, to destination name relative to installDir");
 
     /**
      * Files to be copied to the server before install.
@@ -176,7 +232,21 @@ public interface SoftwareProcess extends Entity, Startable {
                     "several others. Set to null or to 0 to disable any delay.",
             Duration.TEN_SECONDS);
 
-    /** controls the behavior when starting (stop, restart) {@link Startable} children as part of the start (stop, restart) effector on this entity
+    /**
+     * Sets the object that manages the sequence of calls of the entity's driver.
+     */
+    @Beta
+    @SetFromFlag("lifecycleEffectorTasks")
+    ConfigKey<SoftwareProcessDriverLifecycleEffectorTasks> LIFECYCLE_EFFECTOR_TASKS = ConfigKeys.newConfigKey(SoftwareProcessDriverLifecycleEffectorTasks.class,
+            "softwareProcess.lifecycleTasks", "An object that handles lifecycle of an entity's associated machine.",
+            new SoftwareProcessDriverLifecycleEffectorTasks());
+
+    ConfigKey<Boolean> RETRIEVE_USAGE_METRICS = ConfigKeys.newBooleanConfigKey(
+            "metrics.usage.retrieve",
+            "Whether to retrieve the usage (e.g. performance) metrics",
+            true);
+
+    /** Controls the behavior when starting (stop, restart) {@link Startable} children as part of the start (stop, restart) effector on this entity
      * <p>
      * (NB: restarts are currently not propagated to children in the default {@link SoftwareProcess}
      * due to the various semantics which may be desired; this may change, but if entities have specific requirements for restart,
@@ -220,7 +290,9 @@ public interface SoftwareProcess extends Entity, Startable {
     }
 
     @SetFromFlag("childStartMode")
-    ConfigKey<ChildStartableMode> CHILDREN_STARTABLE_MODE = ConfigKeys.newConfigKey(ChildStartableMode.class, "children.startable.mode");
+    ConfigKey<ChildStartableMode> CHILDREN_STARTABLE_MODE = ConfigKeys.newConfigKey(ChildStartableMode.class,
+            "children.startable.mode", "Controls behaviour when starting Startable children as part of this entity's lifecycle.",
+            ChildStartableMode.NONE);
 
     @SuppressWarnings("rawtypes")
     AttributeSensor<MachineProvisioningLocation> PROVISIONING_LOCATION = Sensors.newSensor(
@@ -230,9 +302,11 @@ public interface SoftwareProcess extends Entity, Startable {
             "Whether the process for the service is confirmed as running");
     
     AttributeSensor<Lifecycle> SERVICE_STATE_ACTUAL = Attributes.SERVICE_STATE_ACTUAL;
+    AttributeSensor<Transition> SERVICE_STATE_EXPECTED = Attributes.SERVICE_STATE_EXPECTED;
  
     AttributeSensor<String> PID_FILE = Sensors.newStringSensor("softwareprocess.pid.file", "PID file");
 
+    @Beta
     public static class RestartSoftwareParameters {
         @Beta /** @since 0.7.0 semantics of parameters to restart being explored */
         public static final ConfigKey<Boolean> RESTART_CHILDREN = ConfigKeys.newConfigKey(Boolean.class, "restartChildren",
@@ -253,7 +327,33 @@ public interface SoftwareProcess extends Entity, Startable {
             
         public enum RestartMachineMode { TRUE, FALSE, AUTO }
     }
+
+    @Beta
+    public static class StopSoftwareParameters {
+        //IF_NOT_STOPPED includes STARTING, STOPPING, RUNNING
+        public enum StopMode { ALWAYS, IF_NOT_STOPPED, NEVER };
+
+        @Beta /** @since 0.7.0 semantics of parameters to restart being explored */
+        public static final ConfigKey<StopMode> STOP_PROCESS_MODE = ConfigKeys.newConfigKey(StopMode.class, "stopProcessMode",
+                "When to stop the process with regard to the entity state. " +
+                "ALWAYS will try to stop the process even if the entity is marked as stopped, " +
+                "IF_NOT_STOPPED stops the process only if the entity is not marked as stopped, " +
+                "NEVER doesn't stop the process.", StopMode.IF_NOT_STOPPED);
+
+        @Beta /** @since 0.7.0 semantics of parameters to restart being explored */
+        public static final ConfigKey<StopMode> STOP_MACHINE_MODE = ConfigKeys.newConfigKey(StopMode.class, "stopMachineMode",
+                "When to stop the machine with regard to the entity state. " +
+                "ALWAYS will try to stop the machine even if the entity is marked as stopped, " +
+                "IF_NOT_STOPPED stops the machine only if the entity is not marked as stopped, " +
+                "NEVER doesn't stop the machine.", StopMode.IF_NOT_STOPPED);
+    }
     
     // NB: the START, STOP, and RESTART effectors themselves are (re)defined by MachineLifecycleEffectorTasks
 
+    /**
+     * @since 0.8.0
+     */
+    @Effector(description="Populates the attribute service.notUp.diagnostics, with any available health indicators")
+    @Beta
+    void populateServiceNotUpDiagnostics();
 }

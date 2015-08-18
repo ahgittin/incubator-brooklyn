@@ -24,11 +24,13 @@ import java.util.concurrent.Callable;
 
 import javax.annotation.Nullable;
 
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.http.HttpToolResponse;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.core.util.task.Tasks;
 import org.apache.http.HttpStatus;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import brooklyn.entity.Effector;
 import brooklyn.entity.basic.AbstractEntity;
 import brooklyn.entity.basic.Attributes;
 import brooklyn.entity.basic.Entities;
@@ -41,11 +43,7 @@ import brooklyn.event.feed.http.HttpFeed;
 import brooklyn.event.feed.http.HttpPollConfig;
 import brooklyn.util.collections.Jsonya;
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.config.ConfigBag;
-import brooklyn.util.http.HttpToolResponse;
 import brooklyn.util.net.Urls;
-import brooklyn.util.task.DynamicTasks;
-import brooklyn.util.task.Tasks;
 
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
@@ -53,6 +51,16 @@ import com.google.common.net.MediaType;
 import com.google.gson.Gson;
 
 public class BrooklynEntityMirrorImpl extends AbstractEntity implements BrooklynEntityMirror {
+    @SuppressWarnings("rawtypes")
+    private class MirrorSummary implements Function<HttpToolResponse, Map> {
+        @Override
+        public Map apply(HttpToolResponse input) {
+            Map<?, ?> entitySummary = new Gson().fromJson(input.getContentAsString(), Map.class);
+            String catalogItemId = (String)entitySummary.get("catalogItemId");
+            setAttribute(MIRROR_CATALOG_ITEM_ID, catalogItemId);
+            return entitySummary;
+        }
+    }
 
     private HttpFeed mirror;
     
@@ -68,6 +76,12 @@ public class BrooklynEntityMirrorImpl extends AbstractEntity implements Brooklyn
 
         //start spinning, could take some time before MIRRORED_ENTITY_URL is available for first time mirroring
         setAttribute(Attributes.SERVICE_STATE_ACTUAL, Lifecycle.STARTING);
+    }
+
+    @Override
+    public void rebind() {
+        super.rebind();
+        connectSensorsAsync();
     }
 
     protected void connectSensorsAsync() {
@@ -104,14 +118,13 @@ public class BrooklynEntityMirrorImpl extends AbstractEntity implements Brooklyn
             }
         };
 
-        String sensorsUri = Urls.mergePaths(mirroredEntityUrl, "sensors/current-state");
-
         final BrooklynEntityMirrorImpl self = this;
         mirror = HttpFeed.builder().entity(this)
-            .baseUri(sensorsUri)
+            .baseUri(mirroredEntityUrl)
             .credentialsIfNotNull(getConfig(BrooklynNode.MANAGEMENT_USER), getConfig(BrooklynNode.MANAGEMENT_PASSWORD))
             .period(getConfig(POLL_PERIOD))
             .poll(HttpPollConfig.forMultiple()
+                .suburl("/sensors/current-state")
                 .onSuccess(mirrorSensors)
                 .onFailureOrException(new Function<Object, Void>() {
                     @Override
@@ -126,7 +139,8 @@ public class BrooklynEntityMirrorImpl extends AbstractEntity implements Brooklyn
                         }
                         return null;
                     }
-                })).build();
+                }))
+            .poll(HttpPollConfig.forSensor(MIRROR_SUMMARY).onSuccess(new MirrorSummary())).build();
 
         populateEffectors();
     }

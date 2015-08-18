@@ -20,9 +20,11 @@ package brooklyn.entity.software.ssh;
 
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.ParameterType;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Effector;
-import brooklyn.entity.ParameterType;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.SoftwareProcess;
 import brooklyn.entity.effector.AddEffector;
@@ -32,7 +34,6 @@ import brooklyn.entity.effector.Effectors.EffectorBuilder;
 import brooklyn.entity.software.SshEffectorTasks;
 import brooklyn.entity.software.SshEffectorTasks.SshEffectorTaskFactory;
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.config.ConfigBag;
 import brooklyn.util.text.Strings;
 
 import com.google.common.base.Preconditions;
@@ -40,6 +41,7 @@ import com.google.common.base.Preconditions;
 public final class SshCommandEffector extends AddEffector {
     
     public static final ConfigKey<String> EFFECTOR_COMMAND = ConfigKeys.newStringConfigKey("command");
+    public static final ConfigKey<String> EFFECTOR_EXECUTION_DIR = SshCommandSensor.SENSOR_EXECUTION_DIR;
     
     public SshCommandEffector(ConfigBag params) {
         super(newEffectorBuilder(params).build());
@@ -59,10 +61,12 @@ public final class SshCommandEffector extends AddEffector {
     protected static class Body extends EffectorBody<String> {
         private final Effector<?> effector;
         private final String command;
+        private final String executionDir;
 
         public Body(Effector<?> eff, ConfigBag params) {
             this.effector = eff;
             this.command = Preconditions.checkNotNull(params.get(EFFECTOR_COMMAND), "command must be supplied when defining this effector");
+            this.executionDir = params.get(EFFECTOR_EXECUTION_DIR);
             // TODO could take a custom "env" aka effectorShellEnv
         }
 
@@ -70,8 +74,7 @@ public final class SshCommandEffector extends AddEffector {
         public String call(ConfigBag params) {
             String command = this.command;
             
-            String runDir = entity().getAttribute(SoftwareProcess.RUN_DIR);
-            if (runDir!=null) command = "cd '"+runDir+"'\n"+command;
+            command = SshCommandSensor.makeCommandExecutingInDirectory(command, executionDir, entity());
             
             MutableMap<String, String> env = MutableMap.of();
             // first set all declared parameters, including default values
@@ -80,7 +83,7 @@ public final class SshCommandEffector extends AddEffector {
             }
             
             // then set things from the entities defined shell environment, if applicable
-            env.putAll(Strings.toStringMap(entity().getConfig(SoftwareProcess.SHELL_ENVIRONMENT)));
+            env.putAll(Strings.toStringMap(entity().getConfig(SoftwareProcess.SHELL_ENVIRONMENT), ""));
             
             // if we wanted to resolve the surrounding environment in real time -- see above
 //            Map<String,Object> paramsResolved = (Map<String, Object>) Tasks.resolveDeepValue(effectorShellEnv, Map.class, entity().getExecutionContext());

@@ -21,6 +21,11 @@ package brooklyn.entity.basic;
 import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.core.util.ResourceUtils;
+import org.apache.brooklyn.test.EntityTestUtils;
+import org.apache.brooklyn.test.entity.TestApplication;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
@@ -29,11 +34,6 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.entity.basic.SoftwareProcess.ChildStartableMode;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.location.Location;
-import brooklyn.test.EntityTestUtils;
-import brooklyn.test.entity.TestApplication;
-import brooklyn.util.ResourceUtils;
 import brooklyn.util.javalang.JavaClassNames;
 import brooklyn.util.os.Os;
 import brooklyn.util.text.Strings;
@@ -56,7 +56,7 @@ public class VanillaSoftwareProcessAndChildrenIntegrationTest {
     private static final int PARENT_TASK_SLEEP_LENGTH_SECS = 10;
     private static final int CHILD_TASK_SLEEP_LENGTH_SECS = 10;
     private static final int CONCURRENT_MAX_ACCEPTABLE_DIFF_SECS = PARENT_TASK_SLEEP_LENGTH_SECS - 1;
-    private static final int SEQUENCTIAL_MIN_ACCEPTABLE_DIFF_SECS = PARENT_TASK_SLEEP_LENGTH_SECS - 1;
+    private static final int SEQUENTIAL_MIN_ACCEPTABLE_DIFF_SECS = PARENT_TASK_SLEEP_LENGTH_SECS - 1;
     private static final int EARLY_RETURN_GRACE_MS = 20;
     
     private TestApplication app;
@@ -102,7 +102,7 @@ public class VanillaSoftwareProcessAndChildrenIntegrationTest {
         long startTime = startApp();
 
         long timediff = timediff();
-        Assert.assertTrue( timediff >= SEQUENCTIAL_MIN_ACCEPTABLE_DIFF_SECS, "should have started later, not with time difference "+timediff+" ("+p1+", "+p2+")" );
+        Assert.assertTrue( timediff >= SEQUENTIAL_MIN_ACCEPTABLE_DIFF_SECS, "should have started later, not with time difference "+timediff+" ("+p1+", "+p2+")" );
         Assert.assertTrue(startTime >= 2*PARENT_TASK_SLEEP_LENGTH_SECS*1000 - EARLY_RETURN_GRACE_MS, "startTime="+Time.makeTimeStringRounded(startTime));
     }
 
@@ -127,7 +127,7 @@ public class VanillaSoftwareProcessAndChildrenIntegrationTest {
         checkChildComesUpSoon();
         
         long timediff = timediff();
-        Assert.assertTrue( Math.abs(timediff) >= SEQUENCTIAL_MIN_ACCEPTABLE_DIFF_SECS, "should have started later, not with time difference "+timediff+" ("+p1+", "+p2+")" );
+        Assert.assertTrue( Math.abs(timediff) >= SEQUENTIAL_MIN_ACCEPTABLE_DIFF_SECS, "should have started later, not with time difference "+timediff+" ("+p1+", "+p2+")" );
         Assert.assertTrue(startTime >= PARENT_TASK_SLEEP_LENGTH_SECS*1000 - EARLY_RETURN_GRACE_MS, "startTime="+Time.makeTimeStringRounded(startTime));
         
         // just to prevent warnings

@@ -24,11 +24,11 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.management.ha.HighAvailabilityMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.management.ManagementContext;
-import brooklyn.management.ha.HighAvailabilityMode;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.text.Strings;
 import brooklyn.util.time.CountdownTimer;
@@ -236,6 +236,10 @@ public class ListeningObjectStore implements PersistenceObjectStore {
             for (ObjectStoreTransactionListener listener: listeners)
                 listener.recordDataIn("reading "+path, (result==null ? 0 : result.length()));
             return result;
+        }
+        @Override
+        public byte[] getBytes() {
+            return get().getBytes();
         }
         @Override
         public Date getLastModifiedDate() {

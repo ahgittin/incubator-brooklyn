@@ -18,25 +18,26 @@
  */
 package brooklyn.camp.lite;
 
-import io.brooklyn.camp.CampPlatform;
-import io.brooklyn.camp.spi.AbstractResource;
-import io.brooklyn.camp.spi.Assembly;
-import io.brooklyn.camp.spi.AssemblyTemplate;
-import io.brooklyn.camp.spi.PlatformComponentTemplate;
-import io.brooklyn.camp.spi.collection.ResolvableLink;
-import io.brooklyn.camp.spi.instantiate.BasicAssemblyTemplateInstantiator;
-
 import java.util.Map;
+import java.util.Set;
+
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.management.classloading.BrooklynClassLoadingContext;
+import org.apache.brooklyn.camp.CampPlatform;
+import org.apache.brooklyn.camp.spi.AbstractResource;
+import org.apache.brooklyn.camp.spi.Assembly;
+import org.apache.brooklyn.camp.spi.AssemblyTemplate;
+import org.apache.brooklyn.camp.spi.PlatformComponentTemplate;
+import org.apache.brooklyn.camp.spi.collection.ResolvableLink;
+import org.apache.brooklyn.camp.spi.instantiate.BasicAssemblyTemplateInstantiator;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.test.entity.TestApplication;
+import org.apache.brooklyn.test.entity.TestEntity;
 
 import brooklyn.camp.brooklyn.api.AssemblyTemplateSpecInstantiator;
 import brooklyn.camp.brooklyn.api.HasBrooklynManagementContext;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.management.ManagementContext;
-import brooklyn.management.classloading.BrooklynClassLoadingContext;
-import brooklyn.test.entity.TestApplication;
-import brooklyn.test.entity.TestEntity;
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.config.ConfigBag;
 
 /** simple illustrative instantiator which always makes a {@link TestApplication}, populated with {@link TestEntity} children,
  * all setting {@link TestEntity#CONF_NAME} for the name in the plan and in the service specs
@@ -80,6 +81,11 @@ public class TestAppAssemblyInstantiator extends BasicAssemblyTemplateInstantiat
         Object bc = template.getCustomAttributes().get("brooklyn.config");
         if (bc instanceof Map)
             app.configure(ConfigBag.newInstance().putAll((Map)bc).getAllConfigAsConfigKeyMap());
+    }
+
+    @Override
+    public EntitySpec<?> createNestedSpec(AssemblyTemplate template, CampPlatform platform, BrooklynClassLoadingContext itemLoader, Set<String> encounteredCatalogTypes) {
+        return createSpec(template, platform, itemLoader, true);
     }
 
 }

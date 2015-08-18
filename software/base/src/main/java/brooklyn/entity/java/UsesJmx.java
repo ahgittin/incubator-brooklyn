@@ -21,17 +21,19 @@ package brooklyn.entity.java;
 import java.security.PrivateKey;
 import java.security.cert.Certificate;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.location.PortRange;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.ConfigKeys;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.AttributeSensorAndConfigKey;
 import brooklyn.event.basic.BasicAttributeSensorAndConfigKey;
 import brooklyn.event.basic.BasicConfigKey;
 import brooklyn.event.basic.PortAttributeSensorAndConfigKey;
-import brooklyn.location.PortRange;
-import brooklyn.location.basic.PortRanges;
-import brooklyn.util.flags.SetFromFlag;
+
+import org.apache.brooklyn.location.basic.PortRanges;
 
 public interface UsesJmx extends UsesJava {
 
@@ -43,7 +45,14 @@ public interface UsesJmx extends UsesJava {
     /** Chosen by Java itself by default, setting this will only have any effect if using an agent. */
     @SetFromFlag("jmxPort")
     PortAttributeSensorAndConfigKey JMX_PORT = new PortAttributeSensorAndConfigKey(
-            "jmx.direct.port", "JMX direct/private port (e.g. JMX RMI server port, or JMXMP port, but not RMI registry port)", PortRanges.fromString("31001+")) {
+        "jmx.direct.port", "JMX direct/private port (e.g. JMX RMI server port, or JMXMP port, but not RMI registry port)", PortRanges.fromString("31001+"));
+    
+    // Default is deliberately null for this unused config; if we used "31001+" then we'd potentially give this sensor 
+    // the value 31001 and jmx.direct.port the value 31002. See https://issues.apache.org/jira/browse/BROOKLYN-98
+    /** @deprecated since 0.7.0, kept for rebinding with the anonymous class; code should only ever use {@link #JMX_PORT} */ @Deprecated
+    PortAttributeSensorAndConfigKey JMX_PORT_LEGACY = new PortAttributeSensorAndConfigKey(
+            "jmx.direct.port.legacy.NOT_USED", "Legacy definition JMX direct/private port (e.g. JMX RMI server port, or JMXMP port, but not RMI registry port)", null) {
+        private static final long serialVersionUID = 3846846080809179437L;
         @Override protected Integer convertConfigToSensor(PortRange value, Entity entity) {
             // TODO when using JmxAgentModes.NONE we should *not* convert, but leave it null
             // (e.g. to prevent a warning in e.g. ActiveMQIntegrationTest)
@@ -53,7 +62,7 @@ public interface UsesJmx extends UsesJava {
             return super.convertConfigToSensor(value, entity);
         }
     };
-
+    
     /** Well-known port used by Java itself to start the RMI registry where JMX private port can be discovered, ignored if using JMXMP agent. */
     @SetFromFlag("rmiRegistryPort")
     PortAttributeSensorAndConfigKey RMI_REGISTRY_PORT = ConfigKeys.newPortSensorAndConfigKey(
@@ -100,6 +109,8 @@ public interface UsesJmx extends UsesJava {
     /* Currently these are only used to connect, so only applies where systems set this up themselves. */
     AttributeSensorAndConfigKey<String, String> JMX_USER = ConfigKeys.newStringSensorAndConfigKey("jmx.user", "JMX username");
     AttributeSensorAndConfigKey<String, String> JMX_PASSWORD = ConfigKeys.newStringSensorAndConfigKey("jmx.password", "JMX password");
+    
+    AttributeSensorAndConfigKey<String, String> JMX_AGENT_LOCAL_PATH = ConfigKeys.newStringSensorAndConfigKey("jmx.agent.local.path", "Path to JMX driver on the local machine");
 
     /*
      * Synopsis of how the keys work for JMX_SSL:

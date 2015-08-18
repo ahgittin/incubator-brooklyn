@@ -18,16 +18,17 @@
  */
 package brooklyn.entity.effector;
 
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.api.management.TaskAdaptable;
+import org.apache.brooklyn.api.management.TaskFactory;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
+import org.apache.brooklyn.core.util.task.DynamicSequentialTask;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.core.util.task.Tasks;
+
 import brooklyn.entity.basic.BrooklynTaskTags;
 import brooklyn.entity.basic.EntityInternal;
-import brooklyn.management.Task;
-import brooklyn.management.TaskAdaptable;
-import brooklyn.management.TaskFactory;
-import brooklyn.util.config.ConfigBag;
-import brooklyn.util.flags.TypeCoercions;
-import brooklyn.util.task.DynamicSequentialTask;
-import brooklyn.util.task.DynamicTasks;
-import brooklyn.util.task.Tasks;
 
 import com.google.common.annotations.Beta;
 
@@ -82,16 +83,6 @@ public abstract class EffectorBody<T> {
         return DynamicTasks.queue(task.newTask());
     }
     
-    /** Returns the last task queued in this context, or null if none. 
-     * Does not block, and there is no guarantee the task is submitted
-     * or even that it will be submitted (if the queue aborts early). 
-     * @deprecated since 0.7.0 not needed, and misleading given {@link #last(Class)},
-     * and the prospect that the task will never complete if there are errors */
-    @Deprecated
-    protected Task<?> last() {
-        return DynamicTasks.getTaskQueuingContext().last();
-    }
-
     /** see {@link DynamicTasks#waitForLast()} */
     protected Task<?> waitForLast() {
         return DynamicTasks.waitForLast();

@@ -19,12 +19,32 @@
 package brooklyn.entity.basic;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertTrue;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.entity.proxying.ImplementedBy;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.location.MachineLocation;
+import org.apache.brooklyn.api.management.EntityManager;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.api.management.TaskAdaptable;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.core.util.task.Tasks;
+import org.apache.brooklyn.test.EntityTestUtils;
+import org.apache.brooklyn.test.entity.TestApplication;
 import org.jclouds.util.Throwables2;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,32 +52,37 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
+
 import brooklyn.config.ConfigKey;
 import brooklyn.entity.BrooklynAppUnitTestSupport;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.SoftwareProcess.RestartSoftwareParameters;
 import brooklyn.entity.basic.SoftwareProcess.RestartSoftwareParameters.RestartMachineMode;
+import brooklyn.entity.basic.SoftwareProcess.StopSoftwareParameters;
+import brooklyn.entity.basic.SoftwareProcess.StopSoftwareParameters.StopMode;
+import brooklyn.entity.drivers.BasicEntityDriverManager;
+import brooklyn.entity.drivers.ReflectiveEntityDriverFactory;
 import brooklyn.entity.effector.Effectors;
-import brooklyn.entity.proxying.EntitySpec;
-import brooklyn.entity.proxying.ImplementedBy;
+import brooklyn.entity.software.MachineLifecycleEffectorTasksTest;
 import brooklyn.entity.trait.Startable;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.FixedListMachineProvisioningLocation;
-import brooklyn.location.basic.Locations;
-import brooklyn.location.basic.SshMachineLocation;
-import brooklyn.management.Task;
-import brooklyn.management.TaskAdaptable;
+import brooklyn.event.basic.PortAttributeSensorAndConfigKey;
+
+import org.apache.brooklyn.location.basic.FixedListMachineProvisioningLocation;
+import org.apache.brooklyn.location.basic.Locations;
+import org.apache.brooklyn.location.basic.SimulatedLocation;
+import org.apache.brooklyn.location.basic.SshMachineLocation;
+
+import brooklyn.test.Asserts;
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.config.ConfigBag;
+import brooklyn.util.exceptions.Exceptions;
+import brooklyn.util.exceptions.PropagatedRuntimeException;
 import brooklyn.util.net.UserAndHostAndPort;
 import brooklyn.util.os.Os;
-import brooklyn.util.task.DynamicTasks;
-import brooklyn.util.task.Tasks;
 import brooklyn.util.text.Strings;
 import brooklyn.util.time.Duration;
-
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 
 public class SoftwareProcessEntityTest extends BrooklynAppUnitTestSupport {
@@ -70,14 +95,19 @@ public class SoftwareProcessEntityTest extends BrooklynAppUnitTestSupport {
     private FixedListMachineProvisioningLocation<SshMachineLocation> loc;
     
     @BeforeMethod(alwaysRun=true)
-    @SuppressWarnings("unchecked")
     @Override
     public void setUp() throws Exception {
         super.setUp();
-        loc = mgmt.getLocationManager().createLocation(LocationSpec.create(FixedListMachineProvisioningLocation.class));
+        loc = getLocation();
+    }
+
+    @SuppressWarnings("unchecked")
+    private FixedListMachineProvisioningLocation<SshMachineLocation> getLocation() {
+        FixedListMachineProvisioningLocation<SshMachineLocation> loc = mgmt.getLocationManager().createLocation(LocationSpec.create(FixedListMachineProvisioningLocation.class));
         machine = mgmt.getLocationManager().createLocation(LocationSpec.create(SshMachineLocation.class)
                 .configure("address", "localhost"));
         loc.addMachine(machine);
+        return loc;
     }
 
     @Test
@@ -175,7 +205,7 @@ public class SoftwareProcessEntityTest extends BrooklynAppUnitTestSupport {
         Assert.assertTrue(d.isRunning());
         entity.stop();
         Assert.assertEquals(d.events, ImmutableList.of("setup", "copyInstallResources", "install", "customize", "copyRuntimeResources", "launch", "stop"));
-        Assert.assertFalse(d.isRunning());
+        assertFalse(d.isRunning());
     }
     
     @Test
@@ -189,8 +219,10 @@ public class SoftwareProcessEntityTest extends BrooklynAppUnitTestSupport {
         loc.removeMachine(Locations.findUniqueSshMachineLocation(entity.getLocations()).get());
         
         // with defaults, it won't reboot machine
+        d.events.clear();
         entity.restart();
-        
+        assertEquals(d.events, ImmutableList.of("stop", "launch"));
+
         // but here, it will try to reboot, and fail because there is no machine available
         TaskAdaptable<Void> t1 = Entities.submit(entity, Effectors.invocation(entity, Startable.RESTART, 
                 ConfigBag.newInstance().configure(RestartSoftwareParameters.RESTART_MACHINE_TYPED, RestartMachineMode.TRUE)));
@@ -207,9 +239,119 @@ public class SoftwareProcessEntityTest extends BrooklynAppUnitTestSupport {
             ConfigBag.newInstance().configure(RestartSoftwareParameters.RESTART_MACHINE_TYPED, RestartMachineMode.TRUE)));
         t2.asTask().get();
         
-        Assert.assertFalse(d.isRunning());
+        assertFalse(d.isRunning());
+    }
+
+    @Test
+    public void testBasicSoftwareProcessStopsEverything() throws Exception {
+        MyService entity = app.createAndManageChild(EntitySpec.create(MyService.class));
+        entity.start(ImmutableList.of(loc));
+        SimulatedDriver d = (SimulatedDriver) entity.getDriver();
+        Location machine = Iterables.getOnlyElement(entity.getLocations());
+
+        d.events.clear();
+        entity.stop();
+        assertEquals(d.events, ImmutableList.of("stop"));
+        assertEquals(entity.getLocations().size(), 0);
+        assertTrue(loc.getAvailable().contains(machine));
+    }
+
+    @Test
+    public void testBasicSoftwareProcessStopEverythingExplicitly() throws Exception {
+        MyService entity = app.createAndManageChild(EntitySpec.create(MyService.class));
+        entity.start(ImmutableList.of(loc));
+        SimulatedDriver d = (SimulatedDriver) entity.getDriver();
+        Location machine = Iterables.getOnlyElement(entity.getLocations());
+        d.events.clear();
+
+        TaskAdaptable<Void> t1 = Entities.submit(entity, Effectors.invocation(entity, Startable.STOP,
+                ConfigBag.newInstance().configure(StopSoftwareParameters.STOP_MACHINE_MODE, StopSoftwareParameters.StopMode.IF_NOT_STOPPED)));
+        t1.asTask().get();
+
+        assertEquals(d.events, ImmutableList.of("stop"));
+        assertEquals(entity.getLocations().size(), 0);
+        assertTrue(loc.getAvailable().contains(machine));
+    }
+
+    @Test
+    public void testBasicSoftwareProcessStopsProcess() throws Exception {
+        MyService entity = app.createAndManageChild(EntitySpec.create(MyService.class));
+        entity.start(ImmutableList.of(loc));
+        SimulatedDriver d = (SimulatedDriver) entity.getDriver();
+        Location machine = Iterables.getOnlyElement(entity.getLocations());
+        d.events.clear();
+
+        TaskAdaptable<Void> t1 = Entities.submit(entity, Effectors.invocation(entity, Startable.STOP,
+                ConfigBag.newInstance().configure(StopSoftwareParameters.STOP_MACHINE_MODE, StopSoftwareParameters.StopMode.NEVER)));
+        t1.asTask().get(10, TimeUnit.SECONDS);
+
+        assertEquals(d.events, ImmutableList.of("stop"));
+        assertEquals(ImmutableList.copyOf(entity.getLocations()), ImmutableList.of(machine));
+        assertFalse(loc.getAvailable().contains(machine));
     }
     
+    @Test(groups = "Integration")
+    public void testBasicSoftwareProcessStopAllModes() throws Exception {
+        for (boolean isEntityStopped : new boolean[] {true, false}) {
+            for (StopMode stopProcessMode : StopMode.values()) {
+                for (StopMode stopMachineMode : StopMode.values()) {
+                    try {
+                        testBasicSoftwareProcessStopModes(stopProcessMode, stopMachineMode, isEntityStopped);
+                    } catch (Exception e) {
+                        String msg = "stopProcessMode: " + stopProcessMode + ", stopMachineMode: " + stopMachineMode + ", isEntityStopped: " + isEntityStopped;
+                        throw new PropagatedRuntimeException(msg, e);
+                    }
+                }
+            }
+        }
+    }
+    
+    @Test
+    public void testBasicSoftwareProcessStopSomeModes() throws Exception {
+        for (boolean isEntityStopped : new boolean[] {true, false}) {
+            StopMode stopProcessMode = StopMode.IF_NOT_STOPPED;
+            StopMode stopMachineMode = StopMode.IF_NOT_STOPPED;
+            try {
+                testBasicSoftwareProcessStopModes(stopProcessMode, stopMachineMode, isEntityStopped);
+            } catch (Exception e) {
+                String msg = "stopProcessMode: " + stopProcessMode + ", stopMachineMode: " + stopMachineMode + ", isEntityStopped: " + isEntityStopped;
+                throw new PropagatedRuntimeException(msg, e);
+            }
+        }
+    }
+    
+    private void testBasicSoftwareProcessStopModes(StopMode stopProcessMode, StopMode stopMachineMode, boolean isEntityStopped) throws Exception {
+        FixedListMachineProvisioningLocation<SshMachineLocation> l = getLocation();
+        MyService entity = app.createAndManageChild(EntitySpec.create(MyService.class));
+        entity.start(ImmutableList.of(l));
+        SimulatedDriver d = (SimulatedDriver) entity.getDriver();
+        Location machine = Iterables.getOnlyElement(entity.getLocations());
+        d.events.clear();
+
+        if (isEntityStopped) {
+            ((EntityInternal)entity).setAttribute(ServiceStateLogic.SERVICE_STATE_ACTUAL, Lifecycle.STOPPED);
+        }
+
+        TaskAdaptable<Void> t1 = Entities.submit(entity, Effectors.invocation(entity, Startable.STOP,
+                ConfigBag.newInstance()
+                    .configure(StopSoftwareParameters.STOP_PROCESS_MODE, stopProcessMode)
+                    .configure(StopSoftwareParameters.STOP_MACHINE_MODE, stopMachineMode)));
+        t1.asTask().get(10, TimeUnit.SECONDS);
+
+        if (MachineLifecycleEffectorTasksTest.canStop(stopProcessMode, isEntityStopped)) {
+            assertEquals(d.events, ImmutableList.of("stop"));
+        } else {
+            assertTrue(d.events.isEmpty());
+        }
+        if (MachineLifecycleEffectorTasksTest.canStop(stopMachineMode, machine == null)) {
+            assertTrue(entity.getLocations().isEmpty());
+            assertTrue(l.getAvailable().contains(machine));
+        } else {
+            assertEquals(ImmutableList.copyOf(entity.getLocations()), ImmutableList.of(machine));
+            assertFalse(l.getAvailable().contains(machine));
+        }
+    }
+
     @Test
     public void testShutdownIsIdempotent() throws Exception {
         MyService entity = app.createAndManageChild(EntitySpec.create(MyService.class));
@@ -259,7 +401,7 @@ public class SoftwareProcessEntityTest extends BrooklynAppUnitTestSupport {
         Task<Void> t = entity.invoke(Startable.STOP);
         t.blockUntilEnded();
         
-        Assert.assertFalse(t.isError(), "Expected parent to succeed, not fail with "+Tasks.getError(t));
+        assertFalse(t.isError(), "Expected parent to succeed, not fail with " + Tasks.getError(t));
         Iterator<Task<?>> failures;
         failures = Tasks.failed(Tasks.descendants(t, true)).iterator();
         Assert.assertTrue(failures.hasNext(), "Expected error in descendants");
@@ -284,9 +426,145 @@ public class SoftwareProcessEntityTest extends BrooklynAppUnitTestSupport {
         doTestReleaseEvenIfErrorDuringStop(SimulatedFailInChildOnStopDriver.class);
     }
 
+    @Test
+    public void testDoubleStopEntity() {
+        ReflectiveEntityDriverFactory f = ((BasicEntityDriverManager)mgmt.getEntityDriverManager()).getReflectiveDriverFactory();
+        f.addClassFullNameMapping(EmptySoftwareProcessDriver.class.getName(), MinimalEmptySoftwareProcessTestDriver.class.getName());
+
+        // Second stop on SoftwareProcess will return early, while the first stop is still in progress
+        // This causes the app to shutdown prematurely, leaking machines.
+        EntityManager emgr = mgmt.getEntityManager();
+        EntitySpec<TestApplication> appSpec = EntitySpec.create(TestApplication.class);
+        TestApplication app = emgr.createEntity(appSpec);
+        emgr.manage(app);
+        EntitySpec<?> latchEntitySpec = EntitySpec.create(EmptySoftwareProcess.class);
+        Entity entity = app.createAndManageChild(latchEntitySpec);
+
+        final ReleaseLatchLocation loc = mgmt.getLocationManager().createLocation(LocationSpec.create(ReleaseLatchLocation.class));
+        try {
+            app.start(ImmutableSet.of(loc));
+            EntityTestUtils.assertAttributeEquals(entity, Attributes.SERVICE_STATE_ACTUAL, Lifecycle.RUNNING);
+    
+            final Task<Void> firstStop = entity.invoke(Startable.STOP, ImmutableMap.<String, Object>of());
+            // Wait until first task tries to release the location, at this point the entity's reference 
+            // to the location is already cleared.
+            Asserts.succeedsEventually(new Runnable() {
+                @Override
+                public void run() {
+                    assertTrue(loc.isBlocked());
+                }
+            });
+    
+            // Subsequent stops will end quickly - no location to release,
+            // while the first one is still releasing the machine.
+            final Task<Void> secondStop = entity.invoke(Startable.STOP, ImmutableMap.<String, Object>of());;
+            Asserts.succeedsEventually(new Runnable() {
+                @Override
+                public void run() {
+                    assertTrue(secondStop.isDone());
+                }
+            });
+    
+            // Entity state is STOPPED even though first location is still releasing
+            EntityTestUtils.assertAttributeEquals(entity, Attributes.SERVICE_STATE_ACTUAL, Lifecycle.STOPPED);
+            Asserts.succeedsContinually(new Runnable() {
+                @Override
+                public void run() {
+                    assertFalse(firstStop.isDone());
+                }
+            });
+
+            loc.unblock();
+
+            // After the location is released, first task ends as well.
+            EntityTestUtils.assertAttributeEquals(entity, Attributes.SERVICE_STATE_ACTUAL, Lifecycle.STOPPED);
+            Asserts.succeedsEventually(new Runnable() {
+                @Override
+                public void run() {
+                    assertTrue(firstStop.isDone());
+                }
+            });
+
+        } finally {
+            loc.unblock();
+        }
+
+    }
+
+    @Test
+    public void testDoubleStopApp() {
+        ReflectiveEntityDriverFactory f = ((BasicEntityDriverManager)mgmt.getEntityDriverManager()).getReflectiveDriverFactory();
+        f.addClassFullNameMapping(EmptySoftwareProcessDriver.class.getName(), MinimalEmptySoftwareProcessTestDriver.class.getName());
+
+        // Second stop on SoftwareProcess will return early, while the first stop is still in progress
+        // This causes the app to shutdown prematurely, leaking machines.
+        EntityManager emgr = mgmt.getEntityManager();
+        EntitySpec<TestApplication> appSpec = EntitySpec.create(TestApplication.class);
+        final TestApplication app = emgr.createEntity(appSpec);
+        emgr.manage(app);
+        EntitySpec<?> latchEntitySpec = EntitySpec.create(EmptySoftwareProcess.class);
+        final Entity entity = app.createAndManageChild(latchEntitySpec);
+
+        final ReleaseLatchLocation loc = mgmt.getLocationManager().createLocation(LocationSpec.create(ReleaseLatchLocation.class));
+        try {
+            app.start(ImmutableSet.of(loc));
+            EntityTestUtils.assertAttributeEquals(entity, Attributes.SERVICE_STATE_ACTUAL, Lifecycle.RUNNING);
+    
+            final Task<Void> firstStop = app.invoke(Startable.STOP, ImmutableMap.<String, Object>of());
+            // Wait until first task tries to release the location, at this point the entity's reference 
+            // to the location is already cleared.
+            Asserts.succeedsEventually(new Runnable() {
+                @Override
+                public void run() {
+                    assertTrue(loc.isBlocked());
+                }
+            });
+    
+            // Subsequent stops will end quickly - no location to release,
+            // while the first one is still releasing the machine.
+            final Task<Void> secondStop = app.invoke(Startable.STOP, ImmutableMap.<String, Object>of());;
+            Asserts.succeedsEventually(new Runnable() {
+                @Override
+                public void run() {
+                    assertTrue(secondStop.isDone());
+                }
+            });
+    
+            // Since second stop succeeded the app will get unmanaged.
+            Asserts.succeedsEventually(new Runnable() {
+                @Override
+                public void run() {
+                    assertTrue(!Entities.isManaged(entity));
+                    assertTrue(!Entities.isManaged(app));
+                }
+            });
+    
+            // Unmanage will cancel the first task
+            Asserts.succeedsEventually(new Runnable() {
+                @Override
+                public void run() {
+                    assertTrue(firstStop.isDone());
+                }
+            });
+        } finally {
+            // We still haven't unblocked the location release, but entity is already unmanaged.
+            // Double STOP on an application could leak locations!!!
+            loc.unblock();
+        }
+    }
+
+    @Test
+    public void testOpenPortsWithPortRangeConfig() throws Exception {
+        MyService entity = app.createAndManageChild(EntitySpec.create(MyService.class)
+            .configure("http.port", "9999+"));
+        Assert.assertTrue(entity.getRequiredOpenPorts().contains(9999));
+    }
+
     @ImplementedBy(MyServiceImpl.class)
     public interface MyService extends SoftwareProcess {
+        PortAttributeSensorAndConfigKey HTTP_PORT = Attributes.HTTP_PORT;
         public SoftwareProcessDriver getDriver();
+        public Collection<Integer> getRequiredOpenPorts();
     }
 
     public static class MyServiceImpl extends SoftwareProcessImpl implements MyService {
@@ -294,7 +572,19 @@ public class SoftwareProcessEntityTest extends BrooklynAppUnitTestSupport {
         public MyServiceImpl(Entity parent) { super(parent); }
 
         @Override
-        public Class<?> getDriverInterface() { return SimulatedDriver.class; }
+        protected void initEnrichers() {
+            // Don't add enrichers messing with the SERVICE_UP state - we are setting it manually
+        }
+
+        @Override
+        public Class<?> getDriverInterface() {
+            return SimulatedDriver.class;
+        }
+
+        @Override
+        public Collection<Integer> getRequiredOpenPorts() {
+            return super.getRequiredOpenPorts();
+        }
     }
 
     @ImplementedBy(MyServiceWithVersionImpl.class)
@@ -358,6 +648,7 @@ public class SoftwareProcessEntityTest extends BrooklynAppUnitTestSupport {
             events.add("stop");
             launched = false;
             entity.setAttribute(Startable.SERVICE_UP, false);
+            entity.setAttribute(SoftwareProcess.SERVICE_STATE_ACTUAL, Lifecycle.STOPPED);
         }
     
         @Override
@@ -370,6 +661,7 @@ public class SoftwareProcessEntityTest extends BrooklynAppUnitTestSupport {
         @Override
         public void install() {
             events.add("install");
+            entity.setAttribute(SoftwareProcess.SERVICE_STATE_ACTUAL, Lifecycle.STARTING);
         }
     
         @Override
@@ -382,6 +674,7 @@ public class SoftwareProcessEntityTest extends BrooklynAppUnitTestSupport {
             events.add("launch");
             launched = true;
             entity.setAttribute(Startable.SERVICE_UP, true);
+            entity.setAttribute(SoftwareProcess.SERVICE_STATE_ACTUAL, Lifecycle.RUNNING);
         }
 
         @Override
@@ -416,4 +709,79 @@ public class SoftwareProcessEntityTest extends BrooklynAppUnitTestSupport {
             return (String)getEntity().getConfigRaw(ConfigKeys.newStringConfigKey("salt"), true).or((String)null);
         }
     }
+
+    public static class ReleaseLatchLocation extends SimulatedLocation {
+        private static final long serialVersionUID = 1L;
+        
+        private CountDownLatch lock = new CountDownLatch(1);
+        private volatile boolean isBlocked;
+
+        public void unblock() {
+            lock.countDown();
+        }
+        @Override
+        public void release(MachineLocation machine) {
+            super.release(machine);
+            try {
+                isBlocked = true;
+                lock.await();
+                isBlocked = false;
+            } catch (InterruptedException e) {
+                throw Exceptions.propagate(e);
+            }
+        }
+
+        public boolean isBlocked() {
+            return isBlocked;
+        }
+
+    }
+
+    public static class MinimalEmptySoftwareProcessTestDriver implements EmptySoftwareProcessDriver {
+
+        private EmptySoftwareProcessImpl entity;
+        private Location location;
+
+        public MinimalEmptySoftwareProcessTestDriver(EmptySoftwareProcessImpl entity, Location location) {
+            this.entity = entity;
+            this.location = location;
+        }
+
+        @Override
+        public Location getLocation() {
+            return location;
+        }
+
+        @Override
+        public EntityLocal getEntity() {
+            return entity;
+        }
+
+        @Override
+        public boolean isRunning() {
+            return true;
+        }
+
+        @Override
+        public void rebind() {
+        }
+
+        @Override
+        public void start() {
+        }
+
+        @Override
+        public void restart() {
+        }
+
+        @Override
+        public void stop() {
+        }
+
+        @Override
+        public void kill() {
+        }
+
+    }
+
 }

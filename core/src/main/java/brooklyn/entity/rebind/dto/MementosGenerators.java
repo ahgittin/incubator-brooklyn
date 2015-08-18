@@ -21,43 +21,53 @@ package brooklyn.entity.rebind.dto;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.lang.reflect.Modifier;
+import java.lang.reflect.Proxy;
 import java.util.Map;
 import java.util.Set;
 
-import brooklyn.basic.BrooklynObject;
-import brooklyn.basic.BrooklynTypes;
-import brooklyn.catalog.CatalogItem;
+import org.apache.brooklyn.basic.BrooklynTypes;
+
+import org.apache.brooklyn.api.basic.BrooklynObject;
+import org.apache.brooklyn.api.catalog.CatalogItem;
+import org.apache.brooklyn.api.entity.Application;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.Feed;
+import org.apache.brooklyn.api.entity.Group;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.AttributeSensor.SensorPersistenceMode;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.api.mementos.BrooklynMemento;
+import org.apache.brooklyn.api.mementos.CatalogItemMemento;
+import org.apache.brooklyn.api.mementos.EnricherMemento;
+import org.apache.brooklyn.api.mementos.EntityMemento;
+import org.apache.brooklyn.api.mementos.FeedMemento;
+import org.apache.brooklyn.api.mementos.LocationMemento;
+import org.apache.brooklyn.api.mementos.Memento;
+import org.apache.brooklyn.api.mementos.PolicyMemento;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.EntityAdjunct;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.core.catalog.internal.CatalogItemDo;
+import org.apache.brooklyn.core.policy.basic.AbstractPolicy;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.flags.FlagUtils;
+
 import brooklyn.config.ConfigKey;
 import brooklyn.enricher.basic.AbstractEnricher;
-import brooklyn.entity.Application;
-import brooklyn.entity.Entity;
-import brooklyn.entity.Feed;
-import brooklyn.entity.Group;
 import brooklyn.entity.basic.EntityDynamicType;
 import brooklyn.entity.basic.EntityInternal;
+import brooklyn.entity.rebind.AbstractBrooklynObjectRebindSupport;
 import brooklyn.entity.rebind.TreeUtils;
-import brooklyn.event.AttributeSensor;
+import brooklyn.entity.rebind.persister.BrooklynPersistenceUtils;
 import brooklyn.event.feed.AbstractFeed;
-import brooklyn.location.Location;
-import brooklyn.location.basic.AbstractLocation;
-import brooklyn.location.basic.LocationInternal;
-import brooklyn.management.ManagementContext;
-import brooklyn.management.Task;
-import brooklyn.mementos.BrooklynMemento;
-import brooklyn.mementos.CatalogItemMemento;
-import brooklyn.mementos.EnricherMemento;
-import brooklyn.mementos.EntityMemento;
-import brooklyn.mementos.FeedMemento;
-import brooklyn.mementos.LocationMemento;
-import brooklyn.mementos.Memento;
-import brooklyn.mementos.PolicyMemento;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.Policy;
-import brooklyn.policy.basic.AbstractPolicy;
-import brooklyn.util.collections.MutableMap;
-import brooklyn.util.config.ConfigBag;
-import brooklyn.util.flags.FlagUtils;
 
+import org.apache.brooklyn.location.basic.LocationInternal;
+
+import brooklyn.util.collections.MutableMap;
+
+import com.google.common.annotations.Beta;
 import com.google.common.base.Function;
 import com.google.common.base.Predicates;
 
@@ -65,10 +75,23 @@ public class MementosGenerators {
 
     private MementosGenerators() {}
     
-    /**
-     * Inspects a brooklyn object to create a corresponding memento.
-     */
+    /** @deprecated since 0.7.0 use {@link #newBasicMemento(BrooklynObject)} */
     public static Memento newMemento(BrooklynObject instance) {
+        return newBasicMemento(instance);
+    }
+    
+    /**
+     * Inspects a brooklyn object to create a basic corresponding memento.
+     * <p>
+     * The memento is "basic" in the sense that it does not tie in to any entity-specific customization;
+     * the corresponding memento may subsequently be customized by the caller.
+     * <p>
+     * This method is intended for use by {@link AbstractBrooklynObjectRebindSupport#getMemento()}
+     * and callers wanting a memento for an object should use that, or the
+     * {@link BrooklynPersistenceUtils#newObjectMemento(BrooklynObject)} convenience.
+     */
+    @Beta
+    public static Memento newBasicMemento(BrooklynObject instance) {
         if (instance instanceof Entity) {
             return newEntityMemento((Entity)instance);
         } else if (instance instanceof Location) {
@@ -124,13 +147,16 @@ public class MementosGenerators {
     
     /**
      * Inspects an entity to create a corresponding memento.
+     * <p>
+     * @deprecated since 0.7.0, see {@link #newBasicMemento(BrooklynObject)}
      */
+    @Deprecated
     public static EntityMemento newEntityMemento(Entity entity) {
         return newEntityMementoBuilder(entity).build();
     }
 
     /**
-     * @deprecated since 0.7.0; use {@link #newMemento(BrooklynObject)} instead
+     * @deprecated since 0.7.0; use {@link #newBasicMemento(BrooklynObject)} instead
      */
     @Deprecated
     public static BasicEntityMemento.Builder newEntityMementoBuilder(Entity entityRaw) {
@@ -170,14 +196,16 @@ public class MementosGenerators {
         Map<AttributeSensor, Object> allAttributes = entity.getAllAttributes();
         for (@SuppressWarnings("rawtypes") Map.Entry<AttributeSensor, Object> entry : allAttributes.entrySet()) {
             AttributeSensor<?> key = checkNotNull(entry.getKey(), allAttributes);
-            Object value = entry.getValue();
-            builder.attributes.put((AttributeSensor<?>)key, value);
+            if (key.getPersistenceMode() != SensorPersistenceMode.NONE) {
+                Object value = entry.getValue();
+                builder.attributes.put((AttributeSensor<?>)key, value);
+            }
         }
         
         for (Location location : entity.getLocations()) {
             builder.locations.add(location.getId()); 
         }
-        
+
         for (Entity child : entity.getChildren()) {
             builder.children.add(child.getId()); 
         }
@@ -205,7 +233,11 @@ public class MementosGenerators {
 
         return builder;
     }
-    
+ 
+    /**
+     * @deprecated since 0.7.0, see {@link #newBasicMemento(BrooklynObject)}
+     */
+    @Deprecated
     public static Function<Entity, EntityMemento> entityMementoFunction() {
         return new Function<Entity,EntityMemento>() {
             @Override
@@ -223,13 +255,16 @@ public class MementosGenerators {
      * the location reference is replaced by the location id.
      * TODO When we have a cleaner separation of constructor/config for entities and locations, then
      * we will remove this code!
+     * 
+     * @deprecated since 0.7.0, see {@link #newBasicMemento(BrooklynObject)}
      */
+    @Deprecated
     public static LocationMemento newLocationMemento(Location location) {
         return newLocationMementoBuilder(location).build();
     }
     
     /**
-     * @deprecated since 0.7.0; use {@link #newMemento(BrooklynObject)} instead
+     * @deprecated since 0.7.0; use {@link #newBasicMemento(BrooklynObject)} instead
      */
     @Deprecated
     public static BasicLocationMemento.Builder newLocationMementoBuilder(Location location) {
@@ -247,7 +282,7 @@ public class MementosGenerators {
                 .putAll(FlagUtils.getFieldsWithFlagsExcludingModifiers(location, Modifier.STATIC ^ Modifier.TRANSIENT))
                 .removeAll(nonPersistableFlagNames)
                 .build();
-        ConfigBag persistableConfig = new ConfigBag().copy( ((AbstractLocation)location).getLocalConfigBag() ).removeAll(nonPersistableFlagNames);
+        ConfigBag persistableConfig = new ConfigBag().copy( ((LocationInternal)location).config().getLocalBag() ).removeAll(nonPersistableFlagNames);
 
         builder.copyConfig(persistableConfig);
         builder.locationConfig.putAll(persistableFlags);
@@ -262,6 +297,10 @@ public class MementosGenerators {
         return builder;
     }
     
+    /**
+     * @deprecated since 0.7.0, see {@link #newBasicMemento(BrooklynObject)}
+     */
+    @Deprecated
     public static Function<Location, LocationMemento> locationMementoFunction() {
         return new Function<Location,LocationMemento>() {
             @Override
@@ -274,7 +313,10 @@ public class MementosGenerators {
     
     /**
      * Given a policy, extracts its state for serialization.
+     * 
+     * @deprecated since 0.7.0, see {@link #newBasicMemento(BrooklynObject)}
      */
+    @Deprecated
     public static PolicyMemento newPolicyMemento(Policy policy) {
         BasicPolicyMemento.Builder builder = BasicPolicyMemento.builder();
         populateBrooklynObjectMementoBuilder(policy, builder);
@@ -300,6 +342,10 @@ public class MementosGenerators {
         return builder.build();
     }
     
+    /**
+     * @deprecated since 0.7.0, see {@link #newBasicMemento(BrooklynObject)}
+     */
+    @Deprecated
     public static Function<Policy, PolicyMemento> policyMementoFunction() {
         return new Function<Policy,PolicyMemento>() {
             @Override
@@ -311,7 +357,9 @@ public class MementosGenerators {
 
     /**
      * Given an enricher, extracts its state for serialization.
+     * @deprecated since 0.7.0, see {@link #newBasicMemento(BrooklynObject)}
      */
+    @Deprecated
     public static EnricherMemento newEnricherMemento(Enricher enricher) {
         BasicEnricherMemento.Builder builder = BasicEnricherMemento.builder();
         populateBrooklynObjectMementoBuilder(enricher, builder);
@@ -339,7 +387,9 @@ public class MementosGenerators {
 
     /**
      * Given a feed, extracts its state for serialization.
+     * @deprecated since 0.7.0, see {@link #newBasicMemento(BrooklynObject)}
      */
+    @Deprecated
     public static FeedMemento newFeedMemento(Feed feed) {
         BasicFeedMemento.Builder builder = BasicFeedMemento.builder();
         populateBrooklynObjectMementoBuilder(feed, builder);
@@ -358,29 +408,43 @@ public class MementosGenerators {
         return builder.build();
     }
     
+    /**
+     * @deprecated since 0.7.0, see {@link #newBasicMemento(BrooklynObject)}
+     */
+    @Deprecated
     public static CatalogItemMemento newCatalogItemMemento(CatalogItem<?, ?> catalogItem) {
+        if (catalogItem instanceof CatalogItemDo<?,?>) {
+            catalogItem = ((CatalogItemDo<?,?>)catalogItem).getDto();
+        }
         BasicCatalogItemMemento.Builder builder = BasicCatalogItemMemento.builder();
         populateBrooklynObjectMementoBuilder(catalogItem, builder);
         builder.catalogItemJavaType(catalogItem.getCatalogItemJavaType())
-        .catalogItemType(catalogItem.getCatalogItemType())
-        .description(catalogItem.getDescription())
-        .iconUrl(catalogItem.getIconUrl())
-        .javaType(catalogItem.getJavaType())
-        .libraries(catalogItem.getLibraries())
-        .registeredTypeName(catalogItem.getRegisteredTypeName())
-        .specType(catalogItem.getSpecType())
-        .version(catalogItem.getVersion())
-        .planYaml(catalogItem.getPlanYaml())
-        ;
+            .catalogItemType(catalogItem.getCatalogItemType())
+            .description(catalogItem.getDescription())
+            .iconUrl(catalogItem.getIconUrl())
+            .javaType(catalogItem.getJavaType())
+            .libraries(catalogItem.getLibraries())
+            .symbolicName(catalogItem.getSymbolicName())
+            .specType(catalogItem.getSpecType())
+            .version(catalogItem.getVersion())
+            .planYaml(catalogItem.getPlanYaml())
+            .deprecated(catalogItem.isDeprecated());
         return builder.build();
     }
     
     private static void populateBrooklynObjectMementoBuilder(BrooklynObject instance, AbstractMemento.Builder<?> builder) {
+        if (Proxy.isProxyClass(instance.getClass())) {
+            throw new IllegalStateException("Attempt to create memento from proxy "+instance+" (would fail with wrong type)");
+        }
+        
         builder.id = instance.getId();
         builder.displayName = instance.getDisplayName();
+        builder.catalogItemId = instance.getCatalogItemId();
         builder.type = instance.getClass().getName();
         builder.typeClass = instance.getClass();
-        
+        if (instance instanceof EntityAdjunct) {
+            builder.uniqueTag = ((EntityAdjunct)instance).getUniqueTag();
+        }
         for (Object tag : instance.tags().getTags()) {
             builder.tags.add(tag); 
         }

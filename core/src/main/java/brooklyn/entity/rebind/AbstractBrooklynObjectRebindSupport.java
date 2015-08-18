@@ -18,12 +18,17 @@
  */
 package brooklyn.entity.rebind;
 
+import org.apache.brooklyn.api.entity.rebind.RebindContext;
+import org.apache.brooklyn.api.entity.rebind.RebindSupport;
+import org.apache.brooklyn.api.mementos.Memento;
+import org.apache.brooklyn.api.policy.EntityAdjunct;
+import org.apache.brooklyn.core.policy.basic.AbstractEntityAdjunct.AdjunctTagSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import brooklyn.basic.AbstractBrooklynObject;
+import org.apache.brooklyn.basic.AbstractBrooklynObject;
 import brooklyn.entity.rebind.dto.MementosGenerators;
-import brooklyn.mementos.Memento;
+import brooklyn.util.text.Strings;
 
 public abstract class AbstractBrooklynObjectRebindSupport<T extends Memento> implements RebindSupport<T> {
 
@@ -38,7 +43,7 @@ public abstract class AbstractBrooklynObjectRebindSupport<T extends Memento> imp
     @Override
     @SuppressWarnings("unchecked")
     public T getMemento() {
-        T memento = (T) MementosGenerators.newMemento(instance);
+        T memento = (T) MementosGenerators.newBasicMemento(instance);
         if (LOG.isTraceEnabled()) LOG.trace("Created memento: {}", memento.toVerboseString());
         return memento;
     }
@@ -48,6 +53,7 @@ public abstract class AbstractBrooklynObjectRebindSupport<T extends Memento> imp
         if (LOG.isTraceEnabled()) LOG.trace("Reconstructing: {}", memento.toVerboseString());
 
         instance.setDisplayName(memento.getDisplayName());
+        //catalogItemId already set when creating the object
         addConfig(rebindContext, memento);
         addTags(rebindContext, memento);
         addCustoms(rebindContext, memento);
@@ -62,6 +68,9 @@ public abstract class AbstractBrooklynObjectRebindSupport<T extends Memento> imp
     protected abstract void addCustoms(RebindContext rebindContext, T memento);
     
     protected void addTags(RebindContext rebindContext, T memento) {
+        if (instance instanceof EntityAdjunct && Strings.isNonBlank(memento.getUniqueTag())) {
+            ((AdjunctTagSupport)(instance.tags())).setUniqueTag(memento.getUniqueTag());
+        }
         for (Object tag : memento.getTags()) {
             instance.tags().addTag(tag);
         }

@@ -18,7 +18,8 @@
  */
 package brooklyn.entity.chef;
 
-import brooklyn.event.AttributeSensor;
+import org.apache.brooklyn.api.event.AttributeSensor;
+
 import brooklyn.event.feed.PollConfig;
 
 import com.google.common.base.Function;
@@ -47,8 +48,7 @@ public class ChefAttributePollConfig<T> extends PollConfig<Object, T, ChefAttrib
         this.chefAttributePath = val; return this;
     }
     
-    @Override
-    public String toString() {
-        return "chef["+chefAttributePath+"]";
-    }
+    @Override protected String toStringBaseName() { return "chef"; }
+    @Override protected String toStringPollSource() { return chefAttributePath; }
+    
 }

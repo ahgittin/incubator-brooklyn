@@ -21,12 +21,13 @@ package brooklyn.test.policy;
 import java.util.Collections;
 import java.util.Map;
 
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.core.policy.basic.AbstractPolicy;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+
 import brooklyn.config.ConfigKey;
 import brooklyn.entity.basic.ConfigKeys;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.BasicConfigKey;
-import brooklyn.policy.basic.AbstractPolicy;
-import brooklyn.util.flags.SetFromFlag;
 
 import com.google.common.reflect.TypeToken;
 

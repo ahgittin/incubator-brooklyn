@@ -23,16 +23,20 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
+import org.apache.brooklyn.api.entity.rebind.RebindContext;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.mementos.LocationMemento;
+import org.apache.brooklyn.core.util.flags.FlagUtils;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.ConfigKey;
 import brooklyn.entity.rebind.dto.MementosGenerators;
-import brooklyn.location.Location;
-import brooklyn.location.basic.AbstractLocation;
-import brooklyn.mementos.LocationMemento;
-import brooklyn.util.flags.FlagUtils;
-import brooklyn.util.flags.TypeCoercions;
+
+import org.apache.brooklyn.location.basic.AbstractLocation;
+
+import brooklyn.util.collections.MutableMap;
 
 import com.google.common.collect.Sets;
 
@@ -68,9 +72,9 @@ public class BasicLocationRebindSupport extends AbstractBrooklynObjectRebindSupp
         // FIXME Treat config like we do for entities; this code will disappear when locations become entities.
         
         // Note that the flags have been set in the constructor
-        // FIXME Relies on location.getLocalConfigBag being mutable (to modify the location's own config)
+        // FIXME Relies on location.config().getLocalBag() being mutable (to modify the location's own config)
         
-        location.getLocalConfigBag().putAll(memento.getLocationConfig()).markAll(
+        location.config().getLocalBag().putAll(memento.getLocationConfig()).markAll(
                 Sets.difference(memento.getLocationConfig().keySet(), memento.getLocationConfigUnused())).
                 setDescription(memento.getLocationConfigDescription());
 
@@ -93,7 +97,7 @@ public class BasicLocationRebindSupport extends AbstractBrooklynObjectRebindSupp
                     value = TypeCoercions.coerce(entry.getValue(), fieldType);
                 }
                 if (value != null) {
-                    location.getLocalConfigBag().putStringKey(flagName, value);
+                    location.config().addToLocalBag(MutableMap.of(flagName, value));
                     FlagUtils.setFieldFromFlag(location, flagName, value);
                 }
             } catch (NoSuchElementException e) {
@@ -116,7 +120,7 @@ public class BasicLocationRebindSupport extends AbstractBrooklynObjectRebindSupp
 
     protected void addChildren(RebindContext rebindContext, LocationMemento memento) {
         for (String childId : memento.getChildren()) {
-            Location child = rebindContext.getLocation(childId);
+            Location child = rebindContext.lookup().lookupLocation(childId);
             if (child != null) {
                 location.addChild(child);
             } else {
@@ -126,7 +130,7 @@ public class BasicLocationRebindSupport extends AbstractBrooklynObjectRebindSupp
     }
 
     protected void setParent(RebindContext rebindContext, LocationMemento memento) {
-        Location parent = (memento.getParent() != null) ? rebindContext.getLocation(memento.getParent()) : null;
+        Location parent = (memento.getParent() != null) ? rebindContext.lookup().lookupLocation(memento.getParent()) : null;
         if (parent != null) {
             location.setParent(parent);
         } else if (memento.getParent() != null) {

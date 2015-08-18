@@ -27,38 +27,43 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
+import org.apache.brooklyn.core.util.internal.ssh.ShellTool;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.core.util.task.Tasks;
+import org.apache.brooklyn.core.util.task.ssh.SshTasks;
+import org.apache.brooklyn.core.util.task.system.ProcessTaskFactory;
+import org.apache.brooklyn.core.util.task.system.ProcessTaskWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import brooklyn.entity.basic.AbstractSoftwareProcessSshDriver;
-import brooklyn.entity.basic.Attributes;
-import brooklyn.entity.basic.Entities;
-import brooklyn.entity.basic.EntityInternal;
-import brooklyn.entity.basic.EntityLocal;
-import brooklyn.entity.effector.EffectorTasks;
-import brooklyn.entity.software.SshEffectorTasks;
-import brooklyn.location.basic.SshMachineLocation;
-import brooklyn.util.collections.MutableMap;
-import brooklyn.util.collections.MutableSet;
-import brooklyn.util.exceptions.Exceptions;
-import brooklyn.util.flags.TypeCoercions;
-import brooklyn.util.ssh.BashCommands;
-import brooklyn.util.task.DynamicTasks;
-import brooklyn.util.task.Tasks;
-import brooklyn.util.task.ssh.SshTasks;
-import brooklyn.util.task.system.ProcessTaskWrapper;
-import brooklyn.util.text.StringEscapes.BashStringEscapes;
-import brooklyn.util.text.Strings;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
+import com.google.common.base.Splitter;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.internal.Primitives;
+
+import brooklyn.entity.basic.AbstractSoftwareProcessSshDriver;
+import brooklyn.entity.basic.Attributes;
+import brooklyn.entity.basic.Entities;
+import brooklyn.entity.basic.EntityInternal;
+import brooklyn.entity.effector.EffectorTasks;
+import brooklyn.entity.software.SshEffectorTasks;
+
+import org.apache.brooklyn.location.basic.SshMachineLocation;
+
+import brooklyn.util.collections.MutableMap;
+import brooklyn.util.collections.MutableSet;
+import brooklyn.util.exceptions.Exceptions;
+import brooklyn.util.ssh.BashCommands;
+import brooklyn.util.text.StringEscapes.BashStringEscapes;
+import brooklyn.util.text.Strings;
 
 /**
  * The SSH implementation of the {@link brooklyn.entity.java.JavaSoftwareProcessDriver}.
@@ -100,7 +105,7 @@ public abstract class JavaSoftwareProcessSshDriver extends AbstractSoftwareProce
     @Override
     public Map<String, String> getShellEnvironment() {
         List<String> javaOpts = getJavaOpts();
-        
+
         for (String it : javaOpts) {
             BashStringEscapes.assertValidForDoubleQuotingInBash(it);
         }
@@ -208,7 +213,7 @@ public abstract class JavaSoftwareProcessSshDriver extends AbstractSoftwareProce
 
     /**
      * Return extra Java system properties (-D defines) used by the application.
-     * 
+     *
      * Override as needed; default is an empty map.
      */
     protected Map getCustomJavaSystemProperties() {
@@ -244,17 +249,17 @@ public abstract class JavaSoftwareProcessSshDriver extends AbstractSoftwareProce
 
     /**
      * Return the configuration properties required to enable JMX for a Java application.
-     * 
+     *
      * These should be set as properties in the {@code JAVA_OPTS} environment variable when calling the
      * run script for the application.
      */
     protected Map<String, ?> getJmxJavaSystemProperties() {
         MutableMap.Builder<String, Object> result = MutableMap.<String, Object> builder();
-        
+
         if (isJmxEnabled()) {
             new JmxSupport(getEntity(), getRunDir()).applyJmxJavaSystemProperties(result);
         }
-        
+
         return result.build();
     }
 
@@ -270,97 +275,70 @@ public abstract class JavaSoftwareProcessSshDriver extends AbstractSoftwareProce
     }
 
     /**
-     * Checks for the presence of Java 6 or 7 on the entity's location, installing if necessary.
-     * @return true if Java 6 or 7 was found on the machine or if it was installed correctly, otherwise false.
+     * Checks for the presence of Java on the entity's location, installing if necessary.
+     * @return true if the required version of Java was found on the machine or if it was installed correctly,
+     * otherwise false.
      */
-    protected boolean checkForAndInstallJava6or7() {
-        Optional<String> version = getCurrentJavaVersion();
-        if (version.isPresent() && (version.get().startsWith("1.8") || version.get().startsWith("1.7") || version.get().startsWith("1.6"))) {
-            log.debug("Java version {} already installed at {}@{}", new Object[]{version.get(), getEntity(), getLocation()});
-            return true;
+    protected boolean checkForAndInstallJava(String requiredVersion) {
+        int requiredJavaMinor;
+        if (requiredVersion.contains(".")) {
+            List<String> requiredVersionParts = Splitter.on(".").splitToList(requiredVersion);
+            requiredJavaMinor = Integer.valueOf(requiredVersionParts.get(1));
+        } else if (requiredVersion.length() == 1) {
+            requiredJavaMinor = Integer.valueOf(requiredVersion);
         } else {
-            // Let's hope not!
-            if (version.isPresent()) {
-                log.debug("Found old Java version {} on {}@{}. Going to install latest Java version.",
-                        new Object[]{version.get(), getEntity(), getLocation()});
+            log.error("java version required {} is not supported", requiredVersion);
+            throw new IllegalArgumentException("Required java version " + requiredVersion + " not supported");
+        }
+        Optional<String> installedJavaVersion = getInstalledJavaVersion();
+        if (installedJavaVersion.isPresent()) {
+            List<String> installedVersionParts = Splitter.on(".").splitToList(installedJavaVersion.get());
+            int javaMajor = Integer.valueOf(installedVersionParts.get(0));
+            int javaMinor = Integer.valueOf(installedVersionParts.get(1));
+            if (javaMajor == 1 && javaMinor >= requiredJavaMinor) {
+                log.debug("Java {} already installed at {}@{}", new Object[]{installedJavaVersion.get(), getEntity(), getLocation()});
+                return true;
             }
-            return tryJavaInstall("latest", BashCommands.installJava7Or6OrFail()) == 0;
         }
-    }
-
-    /**
-     * Checks for the presence of Java 7 or 8 on the entity's location, installing if necessary.
-     * @return true if Java 7 or 8 was found on the machine or if it was installed correctly, otherwise false.
-     */
-    protected boolean checkForAndInstallJava7or8() {
-        Optional<String> version = getCurrentJavaVersion();
-        if (version.isPresent() && (version.get().startsWith("1.8") || version.get().startsWith("1.7"))) {
-            log.debug("Java version {} already installed at {}@{}", new Object[]{version.get(), getEntity(), getLocation()});
-            return true;
-        } else {
-            // Let's hope not!
-            if (version.isPresent()) {
-                log.debug("Found old Java version {} on {}@{}. Going to install latest Java version.",
-                        new Object[]{version.get(), getEntity(), getLocation()});
-            }
-            return tryJavaInstall("latest", BashCommands.installJava7OrFail()) == 0;
-        }
-    }
-
-    /**
-     * Checks for the presence of Java 6 on the entity's location, installing if necessary.
-     * @return true if Java 6 was found on the machine or if it was installed correctly, otherwise false.
-     */
-    protected boolean checkForAndInstallJava6() {
-        Optional<String> version = getCurrentJavaVersion();
-        if (version.isPresent() && version.get().startsWith("1.6")) {
-            log.debug("Java 6 already installed at {}@{}", getEntity(), getLocation());
-            return true;
-        } else {
-            return tryJavaInstall("6", BashCommands.installJava6OrFail()) == 0;
-        }
-    }
-
-    /**
-     * Checks for the presence of Java 7 on the entity's location, installing if necessary.
-     * @return true if Java 7 was found on the machine or if it was installed correctly, otherwise false.
-     */
-    protected boolean checkForAndInstallJava7() {
-        Optional<String> version = getCurrentJavaVersion();
-        if (version.isPresent() && version.get().startsWith("1.7")) {
-            log.debug("Java 7 already installed at {}@{}", getEntity(), getLocation());
-            return true;
-        } else {
-            return tryJavaInstall("7", BashCommands.installJava7OrFail()) == 0;
-        }
+        return tryJavaInstall(requiredVersion, BashCommands.installJava(requiredJavaMinor)) == 0;
     }
 
     protected int tryJavaInstall(String version, String command) {
         getLocation().acquireMutex("installing", "installing Java at " + getLocation());
         try {
             log.debug("Installing Java {} at {}@{}", new Object[]{version, getEntity(), getLocation()});
-            ProcessTaskWrapper<Integer> installCommand = Entities.submit(getEntity(),
-                    SshTasks.newSshExecTaskFactory(getLocation(), command));
+            ProcessTaskFactory<Integer> taskFactory = SshTasks.newSshExecTaskFactory(getLocation(), command)
+                    .summary("install java ("+version+")")
+                    .configure(ShellTool.PROP_EXEC_ASYNC, true);
+            ProcessTaskWrapper<Integer> installCommand = Entities.submit(getEntity(), taskFactory);
             int result = installCommand.get();
             if (result != 0) {
                 log.warn("Installation of Java {} failed at {}@{}: {}",
                         new Object[]{version, getEntity(), getLocation(), installCommand.getStderr()});
             }
-           return result;
+            return result;
         } finally {
             getLocation().releaseMutex("installing");
         }
     }
 
     /**
+    * @deprecated since 0.7.0; instead use {@link #getInstalledJavaVersion()}
+    */
+    @Deprecated
+    protected Optional<String> getCurrentJavaVersion() {
+        return getInstalledJavaVersion();
+    }
+
+    /**
      * Checks for the version of Java installed on the entity's location over SSH.
      * @return An Optional containing the version portion of `java -version`, or absent if no Java found.
      */
-    protected Optional<String> getCurrentJavaVersion() {
+    protected Optional<String> getInstalledJavaVersion() {
         log.debug("Checking Java version at {}@{}", getEntity(), getLocation());
         // sed gets stdin like 'java version "1.7.0_45"'
         ProcessTaskWrapper<Integer> versionCommand = Entities.submit(getEntity(), SshTasks.newSshExecTaskFactory(
-                getLocation(), "java -version 2>&1 | grep \"java version\" | sed 's/.*\"\\(.*\\).*\"/\\1/'"));
+                getLocation(), "java -version 2>&1 | grep \" version\" | sed 's/.*\"\\(.*\\).*\"/\\1/'"));
         versionCommand.get();
         String stdOut = versionCommand.getStdout().trim();
         if (!Strings.isBlank(stdOut)) {
@@ -396,12 +374,16 @@ public abstract class JavaSoftwareProcessSshDriver extends AbstractSoftwareProce
     /**
      * Checks for Java 6 or 7, installing Java 7 if neither are found. Override this method to
      * check for and install specific versions of Java.
-     * @see #checkForAndInstallJava6()
-     * @see #checkForAndInstallJava7()
-     * @see #checkForAndInstallJava6or7()
+     *
+     * @see #checkForAndInstallJava(String)
      */
     public boolean installJava() {
-        return checkForAndInstallJava6or7();
+        if (entity instanceof UsesJava) {
+            String version = entity.getConfig(UsesJava.JAVA_VERSION_REQUIRED);
+            return checkForAndInstallJava(version);
+        }
+        // by default it installs jdk7
+        return checkForAndInstallJava("1.7");
     }
 
     public void installJmxSupport() {
@@ -410,21 +392,22 @@ public abstract class JavaSoftwareProcessSshDriver extends AbstractSoftwareProce
             new JmxSupport(getEntity(), getRunDir()).install();
         }
     }
-    
+
     public void checkJavaHostnameBug() {
+        checkNoHostnameBug();
+
         try {
-            ProcessTaskWrapper<Integer> hostnameLen = DynamicTasks.queue(SshEffectorTasks.ssh("echo FOREMARKER; hostname -f | wc | awk '{print $3}'; echo AFTMARKER")).block();
-            String stdout = Strings.getFragmentBetween(hostnameLen.getStdout(), "FOREMARKER", "AFTMARKER");
-            if (hostnameLen.getExitCode()==0 && Strings.isNonBlank(stdout)) {
-                Integer len = Integer.parseInt(stdout.trim());
+            ProcessTaskWrapper<Integer> hostnameTask = DynamicTasks.queue(SshEffectorTasks.ssh("echo FOREMARKER; hostname -f; echo AFTMARKER")).block();
+            String stdout = Strings.getFragmentBetween(hostnameTask.getStdout(), "FOREMARKER", "AFTMARKER");
+            if (hostnameTask.getExitCode() == 0 && Strings.isNonBlank(stdout)) {
+                String hostname = stdout.trim();
+                Integer len = hostname.length();
                 if (len > 63) {
                     // likely to cause a java crash due to java bug 7089443 -- set a new short hostname
                     // http://mail.openjdk.java.net/pipermail/net-dev/2012-July/004603.html
-                    String newHostname = "br-"+getEntity().getId();
+                    String newHostname = "br-"+getEntity().getId().toLowerCase();
                     log.info("Detected likelihood of Java hostname bug with hostname length "+len+" for "+getEntity()+"; renaming "+getMachine()+"  to hostname "+newHostname);
-                    DynamicTasks.queue(SshEffectorTasks.ssh(
-                            "hostname "+newHostname,
-                            "echo 127.0.0.1 "+newHostname+" > /etc/hosts").runAsRoot()).block();
+                    DynamicTasks.queue(SshEffectorTasks.ssh(BashCommands.setHostname(newHostname, null))).block();
                 }
             } else {
                 log.debug("Hostname length could not be determined for location "+EffectorTasks.findSshMachine()+"; not doing Java hostname bug check");

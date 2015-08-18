@@ -20,12 +20,11 @@ package brooklyn.event.basic;
 
 import java.util.ConcurrentModificationException;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.event.SensorEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import brooklyn.entity.Entity;
-import brooklyn.event.Sensor;
-import brooklyn.event.SensorEvent;
 
 import com.google.common.base.Objects;
 
@@ -51,19 +50,32 @@ public class BasicSensorEvent<T> implements SensorEvent<T> {
 
     /** arguments should not be null (except in certain limited testing situations) */
     public BasicSensorEvent(Sensor<T> sensor, Entity source, T value) {
-        this(sensor, source, value, 0);
+        this(sensor, source, value, System.currentTimeMillis());
     }
     
     public BasicSensorEvent(Sensor<T> sensor, Entity source, T value, long timestamp) {
         this.sensor = sensor;
         this.source = source;
         this.value = value;
+        this.timestamp = timestamp;
+    }
+    
+    public static <T> SensorEvent<T> of(Sensor<T> sensor, Entity source, T value, long timestamp) {
+        return new BasicSensorEvent<T>(sensor, source, value, timestamp);
+    }
 
-        if (timestamp > 0) {
-            this.timestamp = timestamp;
-        } else {
-            this.timestamp = System.currentTimeMillis();
-        }
+    @SuppressWarnings("unchecked")
+    public static <T> SensorEvent<T> ofUnchecked(Sensor<T> sensor, Entity source, Object value, long timestamp) {
+        return new BasicSensorEvent<T>(sensor, source, (T)value, timestamp);
+    }
+
+    public static <T> SensorEvent<T> of(Sensor<T> sensor, Entity source, T value) {
+        return new BasicSensorEvent<T>(sensor, source, value);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T> SensorEvent<T> ofUnchecked(Sensor<T> sensor, Entity source, Object value) {
+        return new BasicSensorEvent<T>(sensor, source, (T)value);
     }
 
     @Override

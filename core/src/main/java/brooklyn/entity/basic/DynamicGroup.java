@@ -18,19 +18,21 @@
  */
 package brooklyn.entity.basic;
 
-import groovy.lang.Closure;
-import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
-import brooklyn.entity.proxying.ImplementedBy;
-import brooklyn.entity.trait.Startable;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
-import brooklyn.event.SensorEvent;
-import brooklyn.event.basic.Sensors;
-import brooklyn.util.flags.SetFromFlag;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.proxying.ImplementedBy;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
 
 import com.google.common.base.Predicate;
 import com.google.common.reflect.TypeToken;
+
+import brooklyn.config.ConfigKey;
+import brooklyn.entity.annotation.Effector;
+import brooklyn.entity.trait.Startable;
+import brooklyn.event.basic.Sensors;
+import groovy.lang.Closure;
 
 @ImplementedBy(DynamicGroupImpl.class)
 public interface DynamicGroup extends AbstractGroup {
@@ -43,12 +45,14 @@ public interface DynamicGroup extends AbstractGroup {
     AttributeSensor<Boolean> RUNNING = Sensors.newBooleanSensor(
             "dynamicgroup.running", "Whether the entity is running, and will automatically update group membership");
 
+    MethodEffector<Void> RESCAN_EFFECTOR = new MethodEffector<Void>(DynamicGroup.class, "rescanEntities");
+
     /**
      * Stops this group.
      * <p>
      * Does not stop any of its members. De-activates the filter and unsubscribes to
      * entity-updates, so the membership of the group will not change.
-     * 
+     *
      * @deprecated since 0.7; no longer supported (was only used in tests, and by classes that
      *             also implemented {@link Startable#stop()}!)
      */
@@ -56,6 +60,7 @@ public interface DynamicGroup extends AbstractGroup {
     void stop();
 
     /** Rescans <em>all</em> entities to determine whether they match the filter. */
+    @Effector(description = "Rescans all entities to determine whether they match the configured filter.")
     void rescanEntities();
 
     /** Sets {@link #ENTITY_FILTER}, overriding (and rescanning all) if already set. */

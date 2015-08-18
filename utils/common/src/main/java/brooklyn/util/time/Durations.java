@@ -18,6 +18,7 @@
  */
 package brooklyn.util.time;
 
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -40,11 +41,20 @@ public class Durations {
         try {
             if (timeout==null || timeout.toMilliseconds()<0 || Duration.PRACTICALLY_FOREVER.equals(timeout))
                 return Maybe.of(t.get());
-            if (timeout.toMilliseconds()==0 && !t.isDone())
+            if (timeout.toMilliseconds()==0 && !t.isDone()) {
+                for (int i=0; i<10; i++) {
+                    // give it 10 nanoseconds to complete - heuristically this is often enough
+                    // (Thread.yield should do it, but often seems to have no effect, e.g. on Mac)
+                    Thread.yield();
+                    Thread.sleep(0, 1);
+                }
                 return Maybe.absent("Task "+t+" not completed when immediate completion requested");
+            }
             return Maybe.of(t.get(timeout.toMilliseconds(), TimeUnit.MILLISECONDS));
         } catch (TimeoutException e) {
             return Maybe.absent("Task "+t+" did not complete within "+timeout);
+        } catch (CancellationException e) {
+            return Maybe.absent("Task "+t+" was cancelled");
         } catch (Exception e) {
             throw Exceptions.propagate(e);
         }

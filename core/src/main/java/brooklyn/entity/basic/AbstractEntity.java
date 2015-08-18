@@ -27,75 +27,85 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.brooklyn.api.entity.Application;
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.EntityType;
+import org.apache.brooklyn.api.entity.Feed;
+import org.apache.brooklyn.api.entity.Group;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.entity.rebind.RebindSupport;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.event.SensorEventListener;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.management.EntityManager;
+import org.apache.brooklyn.api.management.ExecutionContext;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.management.SubscriptionContext;
+import org.apache.brooklyn.api.management.SubscriptionHandle;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.api.mementos.EntityMemento;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.EnricherSpec;
+import org.apache.brooklyn.api.policy.EntityAdjunct;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.api.policy.PolicySpec;
+import org.apache.brooklyn.core.catalog.internal.CatalogUtils;
+import org.apache.brooklyn.core.internal.BrooklynFeatureEnablement;
+import org.apache.brooklyn.core.internal.BrooklynInitialization;
+import org.apache.brooklyn.core.internal.storage.BrooklynStorage;
+import org.apache.brooklyn.core.internal.storage.Reference;
+import org.apache.brooklyn.core.internal.storage.impl.BasicReference;
+import org.apache.brooklyn.core.management.internal.EffectorUtils;
+import org.apache.brooklyn.core.management.internal.EntityManagementSupport;
+import org.apache.brooklyn.core.management.internal.ManagementContextInternal;
+import org.apache.brooklyn.core.management.internal.SubscriptionTracker;
+import org.apache.brooklyn.core.policy.basic.AbstractEntityAdjunct;
+import org.apache.brooklyn.core.policy.basic.AbstractPolicy;
+import org.apache.brooklyn.core.policy.basic.AbstractEntityAdjunct.AdjunctTagSupport;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.flags.FlagUtils;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
+import org.apache.brooklyn.core.util.task.DeferredSupplier;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.brooklyn.basic.AbstractBrooklynObject;
 
-import brooklyn.basic.AbstractBrooklynObject;
+import brooklyn.config.BrooklynLogging;
 import brooklyn.config.ConfigKey;
 import brooklyn.config.ConfigKey.HasConfigKey;
 import brooklyn.config.render.RendererHints;
 import brooklyn.enricher.basic.AbstractEnricher;
-import brooklyn.entity.Application;
-import brooklyn.entity.Effector;
-import brooklyn.entity.Entity;
-import brooklyn.entity.EntityType;
-import brooklyn.entity.Feed;
-import brooklyn.entity.Group;
 import brooklyn.entity.basic.ServiceStateLogic.ServiceNotUpLogic;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.rebind.BasicEntityRebindSupport;
-import brooklyn.entity.rebind.RebindSupport;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
-import brooklyn.event.SensorEvent;
-import brooklyn.event.SensorEventListener;
 import brooklyn.event.basic.AttributeMap;
 import brooklyn.event.basic.AttributeSensorAndConfigKey;
 import brooklyn.event.basic.BasicNotificationSensor;
+import brooklyn.event.basic.Sensors;
 import brooklyn.event.feed.AbstractFeed;
 import brooklyn.event.feed.ConfigToAttributes;
-import brooklyn.internal.BrooklynFeatureEnablement;
-import brooklyn.internal.storage.BrooklynStorage;
-import brooklyn.internal.storage.Reference;
-import brooklyn.internal.storage.impl.BasicReference;
-import brooklyn.location.Location;
-import brooklyn.location.basic.Locations;
-import brooklyn.management.EntityManager;
-import brooklyn.management.ExecutionContext;
-import brooklyn.management.ManagementContext;
-import brooklyn.management.SubscriptionContext;
-import brooklyn.management.SubscriptionHandle;
-import brooklyn.management.Task;
-import brooklyn.management.internal.EffectorUtils;
-import brooklyn.management.internal.EntityManagementSupport;
-import brooklyn.management.internal.ManagementContextInternal;
-import brooklyn.management.internal.SubscriptionTracker;
-import brooklyn.mementos.EntityMemento;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.EnricherSpec;
-import brooklyn.policy.EntityAdjunct;
-import brooklyn.policy.Policy;
-import brooklyn.policy.PolicySpec;
-import brooklyn.policy.basic.AbstractEntityAdjunct;
-import brooklyn.policy.basic.AbstractPolicy;
-import brooklyn.util.BrooklynLanguageExtensions;
+
+import org.apache.brooklyn.location.basic.Locations;
+
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.collections.MutableSet;
 import brooklyn.util.collections.SetFromLiveMap;
-import brooklyn.util.config.ConfigBag;
-import brooklyn.util.flags.FlagUtils;
-import brooklyn.util.flags.TypeCoercions;
 import brooklyn.util.guava.Maybe;
-import brooklyn.util.task.DeferredSupplier;
+import brooklyn.util.javalang.Equals;
 import brooklyn.util.text.Strings;
 
 import com.google.common.annotations.Beta;
+import com.google.common.base.Function;
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -111,9 +121,6 @@ import com.google.common.collect.Sets;
  * method.
  * <p>
  * Note that config is typically inherited by children, whereas the fields and attributes are not.
- * <p>
- * Though currently Groovy code, this is very likely to change to pure Java in a future release of 
- * Brooklyn so Groovy'isms should not be relied on.
  * <p>
  * Sub-classes should have a no-argument constructor. When brooklyn creates an entity, it will:
  * <ol>
@@ -136,8 +143,13 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
     
     private static final Logger LOG = LoggerFactory.getLogger(AbstractEntity.class);
     
-    static { BrooklynLanguageExtensions.init(); }
+    static { BrooklynInitialization.initAll(); }
     
+    public static final BasicNotificationSensor<Location> LOCATION_ADDED = new BasicNotificationSensor<Location>(
+            Location.class, "entity.location.added", "Location dynamically added to entity");
+    public static final BasicNotificationSensor<Location> LOCATION_REMOVED = new BasicNotificationSensor<Location>(
+            Location.class, "entity.location.removed", "Location dynamically removed from entity");
+
     public static final BasicNotificationSensor<Sensor> SENSOR_ADDED = new BasicNotificationSensor<Sensor>(Sensor.class,
             "entity.sensor.added", "Sensor dynamically added to entity");
     public static final BasicNotificationSensor<Sensor> SENSOR_REMOVED = new BasicNotificationSensor<Sensor>(Sensor.class,
@@ -160,6 +172,11 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
     public static final BasicNotificationSensor<Entity> CHILD_REMOVED = new BasicNotificationSensor<Entity>(Entity.class,
             "entity.children.removed", "Child dynamically removed from entity");
 
+    public static final BasicNotificationSensor<Group> GROUP_ADDED = new BasicNotificationSensor<Group>(Group.class,
+            "entity.group.added", "Group dynamically added to entity");
+    public static final BasicNotificationSensor<Group> GROUP_REMOVED = new BasicNotificationSensor<Group>(Group.class,
+            "entity.group.removed", "Group dynamically removed from entity");
+    
     static {
         RendererHints.register(Entity.class, RendererHints.displayValue(EntityFunctions.displayName()));
     }
@@ -199,6 +216,8 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
     
     protected final EntityManagementSupport managementSupport = new EntityManagementSupport(this);
 
+    private final BasicConfigurationSupport config = new BasicConfigurationSupport();
+
     /**
      * The config values of this entity. Updating this map should be done
      * via getConfig/setConfig.
@@ -223,7 +242,7 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
     protected final Map<String,Object> tempWorkings = Maps.newLinkedHashMap();
 
     protected transient SubscriptionTracker _subscriptionTracker;
-
+    
     public AbstractEntity() {
         this(Maps.newLinkedHashMap(), null);
     }
@@ -394,21 +413,41 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
     
     /**
      * Sets a config key value, and returns this Entity instance for use in fluent-API style coding.
+     * 
+     * @deprecated since 0.7.0; see {@link #config()}, such as {@code config().set(key, value)}
      */
+    @Deprecated
     public <T> AbstractEntity configure(ConfigKey<T> key, T value) {
         setConfig(key, value);
         return this;
     }
+    
+    /**
+     * @deprecated since 0.7.0; see {@link #config()}, such as {@code config().set(key, value)}
+     */
+    @SuppressWarnings("unchecked")
+    @Deprecated
     public <T> AbstractEntity configure(ConfigKey<T> key, String value) {
-        setConfig((ConfigKey)key, value);
+        config().set((ConfigKey)key, value);
         return this;
     }
+    
+    /**
+     * @deprecated since 0.7.0; see {@link #config()}, such as {@code config().set(key, value)}
+     */
+    @Deprecated
     public <T> AbstractEntity configure(HasConfigKey<T> key, T value) {
-        setConfig(key, value);
+        config().set(key, value);
         return this;
     }
+    
+    /**
+     * @deprecated since 0.7.0; see {@link #config()}, such as {@code config().set(key, value)}
+     */
+    @SuppressWarnings("unchecked")
+    @Deprecated
     public <T> AbstractEntity configure(HasConfigKey<T> key, String value) {
-        setConfig((ConfigKey)key, value);
+        config().set((ConfigKey)key, value);
         return this;
     }
 
@@ -459,7 +498,7 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
             if (oldConfig.getLocalConfig().size() > 0) {
                 configsInternal.setLocalConfig(oldConfig.getLocalConfig());
             }
-            refreshInheritedConfig();
+            config().refreshInheritedConfig();
 
             attributesInternal = new AttributeMap(this, managementContext.getStorage().<Collection<String>, Object>getMap(getId()+"-attributes"));
             if (oldAttribs.asRawMap().size() > 0) {
@@ -550,7 +589,7 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
         
         parent.set(entity);
         entity.addChild(getProxyIfAvailable());
-        refreshInheritedConfig();
+        config().refreshInheritedConfig();
         previouslyOwned = true;
         
         getApplication();
@@ -581,6 +620,8 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
     @Override
     public <T extends Entity> T addChild(T child) {
         checkNotNull(child, "child must not be null (for entity %s)", this);
+        CatalogUtils.setCatalogItemIdOnAddition(this, child);
+        
         boolean changed;
         synchronized (children) {
             if (Entities.isAncestor(this, child)) throw new IllegalStateException("loop detected trying to add child "+child+" to "+this+"; it is already an ancestor");
@@ -608,7 +649,10 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
      */
     @Override
     public <T extends Entity> T addChild(EntitySpec<T> spec) {
-        if (spec.getParent() != null && !this.equals(spec.getParent())) {
+        if (spec.getParent()==null) {
+            spec = EntitySpec.create(spec).parent(this);
+        }
+        if (!this.equals(spec.getParent())) {
             throw new IllegalArgumentException("Attempt to create child of "+this+" with entity spec "+spec+
                 " failed because spec has different parent: "+spec.getParent());
         }
@@ -634,15 +678,23 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
     }
 
     @Override
-    public void addGroup(Group e) {
-        groups.add(e);
+    public void addGroup(Group group) {
+        boolean changed = groups.add(group);
         getApplication();
+        
+        if (changed) {
+            emit(AbstractEntity.GROUP_ADDED, group);
+        }
     }
 
     @Override
-    public void removeGroup(Group e) {
-        groups.remove(e);
+    public void removeGroup(Group group) {
+        boolean changed = groups.remove(group);
         getApplication();
+        
+        if (changed) {
+            emit(AbstractEntity.GROUP_REMOVED, group);
+        }
     }
 
     @Override
@@ -732,6 +784,10 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
             if (truelyNewLocations.size() > 0) {
                 locations.set(ImmutableList.<Location>builder().addAll(oldLocations).addAll(truelyNewLocations).build());
             }
+            
+            for (Location loc : truelyNewLocations) {
+                emit(AbstractEntity.LOCATION_ADDED, loc);
+            }
         }
         
         if (getManagementSupport().isDeployed()) {
@@ -748,7 +804,12 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
     public void removeLocations(Collection<? extends Location> removedLocations) {
         synchronized (locations) {
             List<Location> oldLocations = locations.get();
+            Set<Location> trulyRemovedLocations = Sets.intersection(ImmutableSet.copyOf(removedLocations), ImmutableSet.copyOf(oldLocations));
             locations.set(MutableList.<Location>builder().addAll(oldLocations).removeAll(removedLocations).buildImmutable());
+            
+            for (Location loc : trulyRemovedLocations) {
+                emit(AbstractEntity.LOCATION_REMOVED, loc);
+            }
         }
         
         // TODO Not calling `Entities.unmanage(removedLocation)` because this location might be shared with other entities.
@@ -798,10 +859,20 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
             LOG.trace(""+this+" setAttribute "+attribute+" "+val);
         
         if (Boolean.TRUE.equals(getManagementSupport().isReadOnlyRaw())) {
-            if (WARNED_READ_ONLY_ATTRIBUTES.add(attribute.getName())) {
-                LOG.warn(""+this+" setting "+attribute+" = "+val+" in read only mode; will have no effect (future messages for this sensor logged at trace)");
-            } else if (LOG.isTraceEnabled()) {
-                LOG.trace(""+this+" setting "+attribute+" = "+val+" in read only mode; will have no effect");
+            T oldVal = getAttribute(attribute);
+            if (Equals.approximately(val, oldVal)) {
+                // ignore, probably an enricher resetting values or something on init
+            } else {
+                String message = this+" setting "+attribute+" = "+val+" (was "+oldVal+") in read only mode; will have very little effect"; 
+                if (!getManagementSupport().isDeployed()) {
+                    if (getManagementSupport().wasDeployed()) message += " (no longer deployed)"; 
+                    else message += " (not yet deployed)";
+                }
+                if (WARNED_READ_ONLY_ATTRIBUTES.add(attribute.getName())) {
+                    LOG.warn(message + " (future messages for this sensor logged at trace)");
+                } else if (LOG.isTraceEnabled()) {
+                    LOG.trace(message);
+                }
             }
         }
         T result = attributesInternal.update(attribute, val);
@@ -829,6 +900,35 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
         return result;
     }
 
+    @Beta
+    @Override
+    public <T> T modifyAttribute(AttributeSensor<T> attribute, Function<? super T, Maybe<T>> modifier) {
+        if (LOG.isTraceEnabled())
+            LOG.trace(""+this+" modifyAttribute "+attribute+" "+modifier);
+        
+        if (Boolean.TRUE.equals(getManagementSupport().isReadOnlyRaw())) {
+            String message = this+" modifying "+attribute+" = "+modifier+" in read only mode; will have very little effect"; 
+            if (!getManagementSupport().isDeployed()) {
+                if (getManagementSupport().wasDeployed()) message += " (no longer deployed)"; 
+                else message += " (not yet deployed)";
+            }
+            if (WARNED_READ_ONLY_ATTRIBUTES.add(attribute.getName())) {
+                LOG.warn(message + " (future messages for this sensor logged at trace)");
+            } else if (LOG.isTraceEnabled()) {
+                LOG.trace(message);
+            }
+        }
+        T result = attributesInternal.modify(attribute, modifier);
+        if (result == null) {
+            // could be this is a new sensor
+            entityType.addSensorIfAbsent(attribute);
+        }
+        
+        // TODO Conditionally set onAttributeChanged, only if was modified
+        getManagementSupport().getEntityChangeListener().onAttributeChanged(attribute);
+        return result;
+    }
+
     @Override
     public void removeAttribute(AttributeSensor<?> attribute) {
         if (LOG.isTraceEnabled())
@@ -852,81 +952,227 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
     }
 
     @Override
+    public Map<AttributeSensor, Object> getAllAttributes() {
+        Map<AttributeSensor, Object> result = Maps.newLinkedHashMap();
+        Map<String, Object> attribs = attributesInternal.asMap();
+        for (Map.Entry<String,Object> entry : attribs.entrySet()) {
+            AttributeSensor<?> attribKey = (AttributeSensor<?>) entityType.getSensor(entry.getKey());
+            if (attribKey == null) {
+                // Most likely a race: e.g. persister thread calling getAllAttributes; writer thread
+                // has written attribute value and is in process of calling entityType.addSensorIfAbsent(attribute)
+                // Just use a synthetic AttributeSensor, rather than ignoring value.
+                // TODO If it's not a race, then don't log.warn every time!
+                LOG.warn("When retrieving all attributes of {}, no AttributeSensor for attribute {} (creating synthetic)", this, entry.getKey());
+                attribKey = Sensors.newSensor(Object.class, entry.getKey());
+            }
+            result.put(attribKey, entry.getValue());
+        }
+        return result;
+    }
+
+    
+    // -------- CONFIGURATION --------------
+
+    @Override 
+    @Beta
+    // the concrete type rather than an interface is returned because Groovy subclasses
+    // complain (incorrectly) if we return ConfigurationSupportInternal
+    // TODO revert to ConfigurationSupportInternal when groovy subclasses work without this (eg new groovy version)
+    public BasicConfigurationSupport config() {
+        return config;
+    }
+
+    /**
+     * Direct use of this class is strongly discouraged. It will become private in a future release,
+     * once {@link #config()} is reverted to return {@link ConfigurationSupportInternal} instead of
+     * {@link BasicConfigurationSupport}.
+     */
+    @Beta
+    // TODO revert to private when config() is reverted to return ConfigurationSupportInternal
+    protected class BasicConfigurationSupport implements ConfigurationSupportInternal {
+
+        @Override
+        public <T> T get(ConfigKey<T> key) {
+            return configsInternal.getConfig(key);
+        }
+
+        @Override
+        public <T> T get(HasConfigKey<T> key) {
+            return get(key.getConfigKey());
+        }
+
+        @Override
+        public <T> T set(ConfigKey<T> key, T val) {
+            return setConfigInternal(key, val);
+        }
+
+        @Override
+        public <T> T set(HasConfigKey<T> key, T val) {
+            return set(key.getConfigKey(), val);
+        }
+
+        @Override
+        public <T> T set(ConfigKey<T> key, Task<T> val) {
+            return setConfigInternal(key, val);
+        }
+
+        @Override
+        public <T> T set(HasConfigKey<T> key, Task<T> val) {
+            return set(key.getConfigKey(), val);
+        }
+
+        @Override
+        public ConfigBag getBag() {
+            return configsInternal.getAllConfigBag();
+        }
+
+        @Override
+        public ConfigBag getLocalBag() {
+            return configsInternal.getLocalConfigBag();
+        }
+
+        @Override
+        public Maybe<Object> getRaw(ConfigKey<?> key) {
+            return configsInternal.getConfigRaw(key, true);
+        }
+
+        @Override
+        public Maybe<Object> getRaw(HasConfigKey<?> key) {
+            return getRaw(key.getConfigKey());
+        }
+
+        @Override
+        public Maybe<Object> getLocalRaw(ConfigKey<?> key) {
+            return configsInternal.getConfigRaw(key, false);
+        }
+
+        @Override
+        public Maybe<Object> getLocalRaw(HasConfigKey<?> key) {
+            return getLocalRaw(key.getConfigKey());
+        }
+
+        @Override
+        public void addToLocalBag(Map<String, ?> vals) {
+            configsInternal.addToLocalBag(vals);
+        }
+
+        @Override
+        public void removeFromLocalBag(String key) {
+            configsInternal.removeFromLocalBag(key);
+        }
+
+        @Override
+        public void refreshInheritedConfig() {
+            if (getParent() != null) {
+                configsInternal.setInheritedConfig(((EntityInternal)getParent()).getAllConfig(), ((EntityInternal)getParent()).config().getBag());
+            } else {
+                configsInternal.clearInheritedConfig();
+            }
+
+            refreshInheritedConfigOfChildren();
+        }
+        
+        @Override
+        public void refreshInheritedConfigOfChildren() {
+            for (Entity it : getChildren()) {
+                ((EntityInternal)it).config().refreshInheritedConfig();
+            }
+        }
+        
+        @SuppressWarnings("unchecked")
+        private <T> T setConfigInternal(ConfigKey<T> key, Object val) {
+            if (!inConstruction && getManagementSupport().isDeployed()) {
+                // previously we threw, then warned, but it is still quite common;
+                // so long as callers don't expect miracles, it should be fine.
+                // i (Alex) think the way to be stricter about this (if that becomes needed) 
+                // would be to introduce a 'mutable' field on config keys
+                LOG.debug("configuration being made to {} after deployment: {} = {}; change may not be visible in other contexts", 
+                        new Object[] { this, key, val });
+            }
+            T result = (T) configsInternal.setConfig(key, val);
+            
+            getManagementSupport().getEntityChangeListener().onConfigChanged(key);
+            return result;
+
+        }
+    }
+    
+    @Override
     public <T> T getConfig(ConfigKey<T> key) {
-        return configsInternal.getConfig(key);
+        return config().get(key);
     }
     
     @Override
     public <T> T getConfig(HasConfigKey<T> key) {
-        return configsInternal.getConfig(key);
+        return config().get(key);
     }
     
     @Override
+    @Deprecated
     public <T> T getConfig(HasConfigKey<T> key, T defaultValue) {
         return configsInternal.getConfig(key, defaultValue);
     }
     
     //don't use groovy defaults for defaultValue as that doesn't implement the contract; we need the above
     @Override
+    @Deprecated
     public <T> T getConfig(ConfigKey<T> key, T defaultValue) {
         return configsInternal.getConfig(key, defaultValue);
     }
     
     @Override
+    @Deprecated
     public Maybe<Object> getConfigRaw(ConfigKey<?> key, boolean includeInherited) {
-        return configsInternal.getConfigRaw(key, includeInherited);
+        return (includeInherited) ? config().getRaw(key) : config().getLocalRaw(key);
     }
     
     @Override
+    @Deprecated
     public Maybe<Object> getConfigRaw(HasConfigKey<?> key, boolean includeInherited) {
-        return getConfigRaw(key.getConfigKey(), includeInherited);
-    }
-
-    @SuppressWarnings("unchecked")
-    private <T> T setConfigInternal(ConfigKey<T> key, Object val) {
-        if (!inConstruction && getManagementSupport().isDeployed()) {
-            // previously we threw, then warned, but it is still quite common;
-            // so long as callers don't expect miracles, it should be fine.
-            // i (Alex) think the way to be stricter about this (if that becomes needed) 
-            // would be to introduce a 'mutable' field on config keys
-            LOG.debug("configuration being made to {} after deployment: {} = {}; change may not be visible in other contexts", 
-                    new Object[] { this, key, val });
-        }
-        T result = (T) configsInternal.setConfig(key, val);
-        
-        getManagementSupport().getEntityChangeListener().onConfigChanged(key);
-        return result;
-
+        return (includeInherited) ? config().getRaw(key) : config().getLocalRaw(key);
     }
 
     @Override
+    @Deprecated
     public <T> T setConfig(ConfigKey<T> key, T val) {
-        return setConfigInternal(key, val);
+        return config().set(key, val);
     }
 
     @Override
+    @Deprecated
     public <T> T setConfig(ConfigKey<T> key, Task<T> val) {
-        return setConfigInternal(key, val);
+        return config().set(key, val);
     }
 
+    /**
+     * @deprecated since 0.7.0; use {@code config().set(key, task)}, with {@link Task} instead of {@link DeferredSupplier}
+     */
+    @Deprecated
     public <T> T setConfig(ConfigKey<T> key, DeferredSupplier val) {
-        return setConfigInternal(key, val);
+        return config.setConfigInternal(key, val);
     }
 
     @Override
+    @Deprecated
     public <T> T setConfig(HasConfigKey<T> key, T val) {
-        return setConfig(key.getConfigKey(), val);
+        return config().set(key, val);
     }
 
     @Override
+    @Deprecated
     public <T> T setConfig(HasConfigKey<T> key, Task<T> val) {
-        return (T) setConfig(key.getConfigKey(), val);
+        return (T) config().set(key, val);
     }
 
+    /**
+     * @deprecated since 0.7.0; use {@code config().set(key, task)}, with {@link Task} instead of {@link DeferredSupplier}
+     */
+    @Deprecated
     public <T> T setConfig(HasConfigKey<T> key, DeferredSupplier val) {
         return setConfig(key.getConfigKey(), val);
     }
 
+    @SuppressWarnings("unchecked")
     public <T> T setConfigEvenIfOwned(ConfigKey<T> key, T val) {
         return (T) configsInternal.setConfig(key, val);
     }
@@ -935,67 +1181,69 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
         return setConfigEvenIfOwned(key.getConfigKey(), val);
     }
 
+    /**
+     * @deprecated since 0.7.0; use {@code if (val != null) config().set(key, val)}
+     */
+    @Deprecated
+    @SuppressWarnings({ "unchecked", "rawtypes" })
     protected void setConfigIfValNonNull(ConfigKey key, Object val) {
-        if (val != null) setConfig(key, val);
+        if (val != null) config().set(key, val);
     }
-    
+
+    /**
+     * @deprecated since 0.7.0; use {@code if (val != null) config().set(key, val)}
+     */
+    @Deprecated
+    @SuppressWarnings({ "unchecked", "rawtypes" })
     protected void setConfigIfValNonNull(HasConfigKey key, Object val) {
-        if (val != null) setConfig(key, val);
+        if (val != null) config().set(key, val);
     }
 
+    /**
+     * @deprecated since 0.7.0; see {@code config().refreshInheritedConfig()}
+     */
     @Override
+    @Deprecated
     public void refreshInheritedConfig() {
-        if (getParent() != null) {
-            configsInternal.setInheritedConfig(((EntityInternal)getParent()).getAllConfig(), ((EntityInternal)getParent()).getAllConfigBag());
-        } else {
-            configsInternal.clearInheritedConfig();
-        }
-
-        refreshInheritedConfigOfChildren();
+        config().refreshInheritedConfig();
     }
 
+    /**
+     * @deprecated since 0.7.0; see {@code config().refreshInheritedConfigOfChildren()}
+     */
+    @Deprecated
     void refreshInheritedConfigOfChildren() {
-        for (Entity it : getChildren()) {
-            ((EntityInternal)it).refreshInheritedConfig();
-        }
+        config().refreshInheritedConfigOfChildren();
     }
 
     @Override
+    @Deprecated
     public EntityConfigMap getConfigMap() {
         return configsInternal;
     }
     
     @Override
+    @Deprecated
     public Map<ConfigKey<?>,Object> getAllConfig() {
         return configsInternal.getAllConfig();
     }
 
     @Beta
     @Override
+    @Deprecated
     public ConfigBag getAllConfigBag() {
-        return configsInternal.getAllConfigBag();
+        return config().getBag();
     }
 
     @Beta
     @Override
+    @Deprecated
     public ConfigBag getLocalConfigBag() {
-        return configsInternal.getLocalConfigBag();
+        return config().getLocalBag();
     }
 
-    @Override
-    public Map<AttributeSensor, Object> getAllAttributes() {
-        Map<AttributeSensor, Object> result = Maps.newLinkedHashMap();
-        Map<String, Object> attribs = attributesInternal.asMap();
-        for (Map.Entry<String,Object> entry : attribs.entrySet()) {
-            AttributeSensor attribKey = (AttributeSensor) entityType.getSensor(entry.getKey());
-            if (attribKey == null) {
-                LOG.warn("When retrieving all attributes of {}, ignoring attribute {} because no matching AttributeSensor found", this, entry.getKey());
-            } else {
-                result.put(attribKey, entry.getValue());
-            }
-        }
-        return result;
-    }
+    
+    // -------- SUBSCRIPTIONS --------------
 
     /** @see EntityLocal#subscribe */
     @Override
@@ -1110,6 +1358,7 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
             removePolicy(old);
         }
         
+        CatalogUtils.setCatalogItemIdOnAddition(this, policy);
         policies.add((AbstractPolicy)policy);
         ((AbstractPolicy)policy).setEntity(this);
         
@@ -1166,6 +1415,7 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
             removeEnricher(old);
         }
         
+        CatalogUtils.setCatalogItemIdOnAddition(this, enricher);
         enrichers.add((AbstractEnricher) enricher);
         ((AbstractEnricher)enricher).setEntity(this);
         
@@ -1174,13 +1424,24 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
     }
     
     private <T extends EntityAdjunct> T findApparentlyEqualAndWarnIfNotSameUniqueTag(Collection<? extends T> items, T newItem) {
-        T oldItem = findApparentlyEqual(items, newItem);
+        T oldItem = findApparentlyEqual(items, newItem, true);
         
         if (oldItem!=null) {
+            String oldItemTag = oldItem.getUniqueTag();
             String newItemTag = newItem.getUniqueTag();
-            if (newItemTag!=null) {
-                return oldItem;
+            if (oldItemTag!=null || newItemTag!=null) {
+                if (Objects.equal(oldItemTag, newItemTag)) {
+                    // if same tag, return old item for replacing without comment
+                    return oldItem;
+                }
+                // if one has a tag bug not the other, and they are apparently equal,
+                // transfer the tag across
+                T tagged = oldItemTag!=null ? oldItem : newItem;
+                T tagless = oldItemTag!=null ? newItem : oldItem;
+                LOG.warn("Apparently equal items "+oldItem+" and "+newItem+"; but one has a unique tag "+tagged.getUniqueTag()+"; applying to the other");
+                ((AdjunctTagSupport)tagless.tags()).setUniqueTag(tagged.getUniqueTag());
             }
+            
             if (isRebinding()) {
                 LOG.warn("Adding to "+this+", "+newItem+" appears identical to existing "+oldItem+"; will replace. "
                     + "Underlying addition should be modified so it is not added twice during rebind or unique tag should be used to indicate it is identical.");
@@ -1194,20 +1455,31 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
             return null;
         }
     }
-    private <T extends EntityAdjunct> T findApparentlyEqual(Collection<? extends T> itemsCopy, T newItem) {
-        // TODO workaround for issue where enrichers can get added multiple times on rebind,
-        // if it's added in onBecomingManager or connectSensors; the right fix will be more disciplined about how/where these are added
-        // (easier done when sensor feeds are persisted)
+    private <T extends EntityAdjunct> T findApparentlyEqual(Collection<? extends T> itemsCopy, T newItem, boolean transferUniqueTag) {
+        // TODO workaround for issue where enrichers/feeds/policies can get added multiple times on rebind,
+        // if it's added in onBecomingManager or connectSensors; 
+        // the right fix will be more disciplined about how/where these are added;
+        // furthermore unique tags should be preferred;
+        // when they aren't supplied, a reflection equals is done ignoring selected fields,
+        // which is okay but not great ... and if it misses something (e.g. because an 'equals' isn't implemented)
+        // then you can get a new instance on every rebind
+        // (and currently these aren't readily visible, except looking at the counts or in persisted state) 
         Class<?> beforeEntityAdjunct = newItem.getClass();
         while (beforeEntityAdjunct.getSuperclass()!=null && !beforeEntityAdjunct.getSuperclass().equals(AbstractEntityAdjunct.class))
             beforeEntityAdjunct = beforeEntityAdjunct.getSuperclass();
         
         String newItemTag = newItem.getUniqueTag();
         for (T oldItem: itemsCopy) {
-            if (oldItem.getUniqueTag()!=null) {
-                if ((oldItem.getUniqueTag().equals(newItemTag)))
+            String oldItemTag = oldItem.getUniqueTag();
+            if (oldItemTag!=null && newItemTag!=null) { 
+                if (oldItemTag.equals(newItemTag)) {
                     return oldItem;
-            } else if (newItemTag==null && oldItem.getClass().equals(newItem.getClass())) {
+                } else {
+                    continue;
+                }
+            }
+            // either does not have a unique tag, do deep equality
+            if (oldItem.getClass().equals(newItem.getClass())) {
                 if (EqualsBuilder.reflectionEquals(oldItem, newItem, false,
                         // internal admin in 'beforeEntityAdjunct' should be ignored
                         beforeEntityAdjunct,
@@ -1215,8 +1487,11 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
                         // from aggregator
                         "transformation",
                         // from averager
-                        "values", "timestamps", "lastAverage")) {
-                    
+                        "values", "timestamps", "lastAverage",
+                        // from some feeds
+                        "poller",
+                        "pollerStateMutex"
+                        )) {
                     
                     return oldItem;
                 }
@@ -1251,6 +1526,7 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
     /**
      * Convenience, which calls {@link EntityInternal#feeds()} and {@link FeedSupport#addFeed(Feed)}.
      */
+    @Override
     public <T extends Feed> T addFeed(T feed) {
         return feeds().addFeed(feed);
     }
@@ -1276,10 +1552,19 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
         public <T extends Feed> T addFeed(T feed) {
             Feed old = findApparentlyEqualAndWarnIfNotSameUniqueTag(feeds, feed);
             if (old != null) {
-                LOG.debug("Removing "+old+" when adding "+feed+" to "+this);
-                removeFeed(old);
+                if (old == feed) {
+                    if (!BrooklynFeatureEnablement.isEnabled(BrooklynFeatureEnablement.FEATURE_FEED_REGISTRATION_PROPERTY)) {
+                        LOG.debug("Feed " + feed + " already added, not adding a second time.");
+                    } // else expected to be added a second time through addFeed, ignore
+                    return feed;
+                } else {
+                    // Different feed object with (seemingly) same functionality, remove previous one, will stop it.
+                    LOG.debug("Removing "+old+" when adding "+feed+" to "+this);
+                    removeFeed(old);
+                }
             }
             
+            CatalogUtils.setCatalogItemIdOnAddition(AbstractEntity.this, feed);
             feeds.add(feed);
             if (!AbstractEntity.this.equals(((AbstractFeed)feed).getEntity()))
                 ((AbstractFeed)feed).setEntity(AbstractEntity.this);
@@ -1325,7 +1610,8 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
             LOG.warn("Strongly discouraged use of emit with sensor event as value "+sensor+" "+val+"; value should be unpacked!",
                 new Throwable("location of discouraged event "+sensor+" emit"));
         }
-        if (LOG.isDebugEnabled()) LOG.debug("Emitting sensor notification {} value {} on {}", new Object[] {sensor.getName(), val, this});
+        BrooklynLogging.log(LOG, BrooklynLogging.levelDebugOrTraceIfReadOnly(this),
+            "Emitting sensor notification {} value {} on {}", sensor.getName(), val, this);
         emitInternal(sensor, val);
     }
     
@@ -1450,23 +1736,4 @@ public abstract class AbstractEntity extends AbstractBrooklynObject implements E
         super.onTagsChanged();
         getManagementSupport().getEntityChangeListener().onTagsChanged();
     }
-
-    public Set<Object> getTags() {
-        return tags().getTags();
-    }
-
-    @Override
-    public boolean addTag(Object tag) {
-        return tags().addTag(tag);
-    }    
-
-    @Override
-    public boolean removeTag(Object tag) {
-        return tags().removeTag(tag);
-    }    
-
-    @Override
-    public boolean containsTag(Object tag) {
-        return tags().containsTag(tag);
-    }    
 }

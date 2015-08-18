@@ -24,7 +24,8 @@ import java.util.Map;
 
 import javax.annotation.Nullable;
 
-import brooklyn.event.AttributeSensor;
+import org.apache.brooklyn.api.event.AttributeSensor;
+
 import brooklyn.event.feed.PollConfig;
 import brooklyn.util.collections.MutableList;
 import brooklyn.util.collections.MutableMap;
@@ -127,4 +128,16 @@ public class SshPollConfig<T> extends PollConfig<SshPollValue, T, SshPollConfig<
         return this;
     }
 
+    @Override protected String toStringBaseName() { return "ssh"; }
+    @Override protected Object toStringPollSource() {
+        if (getCommandSupplier()==null) return null;
+        String command = getCommandSupplier().get();
+        return command;
+    }
+    @Override protected MutableList<Object> equalsFields() { 
+        return super.equalsFields()
+            .appendIfNotNull(getCommandSupplier()!=null ? getCommandSupplier().get() : null)
+            .appendIfNotNull(getEnvSupplier()!=null ? getEnvSupplier().get() : null); 
+    }
+    
 }

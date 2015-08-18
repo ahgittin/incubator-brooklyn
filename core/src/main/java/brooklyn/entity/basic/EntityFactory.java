@@ -18,9 +18,9 @@
  */
 package brooklyn.entity.basic;
 
-import brooklyn.entity.Entity;
-
 import java.util.Map;
+
+import org.apache.brooklyn.api.entity.Entity;
 
 /**
  * A Factory for creating entities.

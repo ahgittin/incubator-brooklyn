@@ -22,12 +22,15 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Collection;
 
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.core.util.task.Tasks;
+
+import brooklyn.entity.basic.ServiceStateLogic.ComputeServiceIndicatorsFromChildrenAndMembers;
 import brooklyn.entity.software.MachineLifecycleEffectorTasks;
-import brooklyn.location.Location;
-import brooklyn.management.Task;
-import brooklyn.util.config.ConfigBag;
-import brooklyn.util.task.DynamicTasks;
-import brooklyn.util.task.Tasks;
+import brooklyn.util.collections.QuorumCheck;
 
 public class SameServerEntityImpl extends AbstractEntity implements SameServerEntity {
 
@@ -36,7 +39,11 @@ public class SameServerEntityImpl extends AbstractEntity implements SameServerEn
     @Override
     protected void initEnrichers() {
         super.initEnrichers();
-        addEnricher(ServiceStateLogic.newEnricherFromChildren());
+        
+        // Because can have multiple children (similar to groups/clusters/apps), need to
+        // monitor their health and indicate this has failed if any of them have failed.
+        addEnricher(ServiceStateLogic.newEnricherFromChildren()
+                .configure(ComputeServiceIndicatorsFromChildrenAndMembers.UP_QUORUM_CHECK, QuorumCheck.QuorumChecks.all()));
     }
     
     /**
@@ -99,7 +106,7 @@ public class SameServerEntityImpl extends AbstractEntity implements SameServerEn
      * {@link DynamicTasks#queue(String, java.util.concurrent.Callable)}.
      */
     protected void doStop() {
-        LIFECYCLE_TASKS.stop();
+        LIFECYCLE_TASKS.stop(ConfigBag.EMPTY);
     }
 
     /**

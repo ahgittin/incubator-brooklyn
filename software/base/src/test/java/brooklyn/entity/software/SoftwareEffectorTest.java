@@ -20,6 +20,13 @@ package brooklyn.entity.software;
 
 import java.util.Arrays;
 
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.task.system.ProcessTaskWrapper;
+import org.apache.brooklyn.test.entity.TestApplication;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
@@ -27,18 +34,12 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import brooklyn.entity.Effector;
 import brooklyn.entity.basic.Entities;
 import brooklyn.entity.effector.Effectors;
 import brooklyn.entity.software.SshEffectorTasks.SshEffectorBody;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.LocalhostMachineProvisioningLocation;
-import brooklyn.location.basic.SshMachineLocation;
-import brooklyn.management.ManagementContext;
-import brooklyn.management.Task;
-import brooklyn.test.entity.TestApplication;
-import brooklyn.util.config.ConfigBag;
-import brooklyn.util.task.system.ProcessTaskWrapper;
+
+import org.apache.brooklyn.location.basic.LocalhostMachineProvisioningLocation;
+import org.apache.brooklyn.location.basic.SshMachineLocation;
 
 import com.google.common.base.Throwables;
 

@@ -22,9 +22,11 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.management.ManagementContext;
+
 import brooklyn.config.render.RendererHints;
-import brooklyn.event.AttributeSensor;
-import brooklyn.event.Sensor;
 import brooklyn.event.basic.BasicAttributeSensor;
 import brooklyn.event.basic.BasicAttributeSensorAndConfigKey;
 import brooklyn.event.basic.BasicNotificationSensor;
@@ -32,6 +34,7 @@ import brooklyn.event.basic.PortAttributeSensorAndConfigKey;
 import brooklyn.event.basic.Sensors;
 import brooklyn.util.net.UserAndHostAndPort;
 
+import com.google.common.annotations.Beta;
 import com.google.common.collect.ImmutableList;
 import com.google.common.reflect.TypeToken;
 
@@ -84,6 +87,10 @@ public interface Attributes {
             UserAndHostAndPort.class, 
             "host.sshAddress", 
             "user@host:port for ssh'ing (or null if inappropriate)");
+    AttributeSensor<UserAndHostAndPort> WINRM_ADDRESS = Sensors.newSensor(
+            UserAndHostAndPort.class, 
+            "host.winrmAddress", 
+            "user@host:port for WinRM'ing (or null if inappropriate)");
     AttributeSensor<String> SUBNET_HOSTNAME = Sensors.newStringSensor( "host.subnet.hostname", "Host name as known internally in " +
             "the subnet where it is running (if different to host.name)");
     AttributeSensor<String> SUBNET_ADDRESS = Sensors.newStringSensor( "host.subnet.address", "Host address as known internally in " +
@@ -96,6 +103,7 @@ public interface Attributes {
      */
     AttributeSensor<Boolean> SERVICE_UP = Sensors.newBooleanSensor("service.isUp", 
             "Whether the service is active and availability (confirmed and monitored)");
+    
     @SuppressWarnings("serial")
     AttributeSensor<Map<String,Object>> SERVICE_NOT_UP_INDICATORS = Sensors.newSensor(
         new TypeToken<Map<String,Object>>() {},
@@ -108,6 +116,15 @@ public interface Attributes {
         "service.problems", 
         "A map of namespaced indicators of problems with a service");
 
+    /**
+     * @since 0.8.0
+     */
+    @SuppressWarnings("serial")
+    AttributeSensor<Map<String,Object>> SERVICE_NOT_UP_DIAGNOSTICS = Sensors.newSensor(
+        new TypeToken<Map<String,Object>>() {},
+        "service.notUp.diagnostics", 
+        "A map of namespaced diagnostics, from when the service is not up");
+    
     AttributeSensor<Lifecycle> SERVICE_STATE_ACTUAL = Sensors.newSensor(Lifecycle.class,
             "service.state", "Actual lifecycle state of the service");
     AttributeSensor<Lifecycle.Transition> SERVICE_STATE_EXPECTED = Sensors.newSensor(Lifecycle.Transition.class,
@@ -135,5 +152,18 @@ public interface Attributes {
             RendererHints.register(MAIN_URI, RendererHints.namedActionWithUrl());
         }
     }
+
+    /*
+     * Brooklyn management attributes (optional)
+     */
+
+    /**
+     * Used by entities registering a {@link ManagementContext.PropertiesReloadListener} to store a persistent
+     * reference to it, for use when unregistering the listener.
+     */
+    @Beta
+    AttributeSensor<ManagementContext.PropertiesReloadListener> PROPERTIES_RELOAD_LISTENER = Sensors.newSensor(
+            ManagementContext.PropertiesReloadListener.class,
+            "brooklyn.management.propertiesReloadListener", "Properties reload listener");
 
 }

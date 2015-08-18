@@ -20,12 +20,13 @@ package brooklyn.entity.trait;
 
 import java.util.List;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.proxying.ImplementedBy;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+import org.apache.brooklyn.test.entity.TestEntity;
+
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.ConfigKeys;
-import brooklyn.entity.proxying.ImplementedBy;
-import brooklyn.test.entity.TestEntity;
-import brooklyn.util.flags.SetFromFlag;
 
 import com.google.common.base.Function;
 import com.google.common.base.Functions;

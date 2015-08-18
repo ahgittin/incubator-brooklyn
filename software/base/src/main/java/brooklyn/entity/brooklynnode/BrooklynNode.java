@@ -24,16 +24,21 @@ import java.util.List;
 import java.util.Map;
 
 import brooklyn.BrooklynVersion;
-import brooklyn.catalog.Catalog;
+
+import org.apache.brooklyn.api.catalog.Catalog;
+import org.apache.brooklyn.api.entity.Effector;
+import org.apache.brooklyn.api.entity.proxying.ImplementedBy;
+import org.apache.brooklyn.api.event.AttributeSensor;
+import org.apache.brooklyn.api.management.ha.HighAvailabilityMode;
+import org.apache.brooklyn.api.management.ha.ManagementNodeState;
+import org.apache.brooklyn.core.util.flags.SetFromFlag;
+
 import brooklyn.config.ConfigKey;
-import brooklyn.entity.Effector;
 import brooklyn.entity.basic.BrooklynConfigKeys;
 import brooklyn.entity.basic.ConfigKeys;
 import brooklyn.entity.basic.SoftwareProcess;
 import brooklyn.entity.effector.Effectors;
 import brooklyn.entity.java.UsesJava;
-import brooklyn.entity.proxying.ImplementedBy;
-import brooklyn.event.AttributeSensor;
 import brooklyn.event.basic.BasicAttributeSensor;
 import brooklyn.event.basic.BasicAttributeSensorAndConfigKey;
 import brooklyn.event.basic.Sensors;
@@ -41,7 +46,6 @@ import brooklyn.event.basic.BasicAttributeSensorAndConfigKey.StringAttributeSens
 import brooklyn.event.basic.MapConfigKey;
 import brooklyn.event.basic.PortAttributeSensorAndConfigKey;
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.flags.SetFromFlag;
 import brooklyn.util.net.Networking;
 import brooklyn.util.ssh.BashCommands;
 import brooklyn.util.time.Duration;
@@ -63,12 +67,11 @@ public interface BrooklynNode extends SoftwareProcess, UsesJava {
             new TypeToken<Map<String,String>>() {}, "brooklynnode.copytorundir", "URLs of resources to be copied across to the server, giving the path they are to be copied to", MutableMap.<String,String>of());
     
     @SetFromFlag("version")
-    public static final ConfigKey<String> SUGGESTED_VERSION = ConfigKeys.newConfigKeyWithDefault(BrooklynConfigKeys.SUGGESTED_VERSION, "0.7.0-SNAPSHOT"); // BROOKLYN_VERSION
+    public static final ConfigKey<String> SUGGESTED_VERSION = ConfigKeys.newConfigKeyWithDefault(BrooklynConfigKeys.SUGGESTED_VERSION, "0.8.0-SNAPSHOT"); // BROOKLYN_VERSION
 
-    // Takes precedence over downloadUrl, if non-null
     @SetFromFlag("distroUploadUrl")
     public static final ConfigKey<String> DISTRO_UPLOAD_URL = ConfigKeys.newStringConfigKey(
-            "brooklynnode.distro.uploadurl", "URL for uploading the brooklyn distro (retrieved locally and pushed to remote install location)", null);
+            "brooklynnode.distro.uploadurl", "URL for uploading the brooklyn distro (retrieved locally and pushed to remote install location. Takes precedence over downloadUrl, if non-null)", null);
 
     // Note that download URL only supports versions in org.apache.brooklyn, so not 0.6.0 and earlier 
     // (which used maven group io.brooklyn). Aled thinks we can live with that.
@@ -85,7 +88,8 @@ public interface BrooklynNode extends SoftwareProcess, UsesJava {
     ConfigKey<String> SUBPATH_IN_ARCHIVE = ConfigKeys.newStringConfigKey("brooklynnode.download.archive.subpath",
         "Path to the main directory in the archive being supplied for installation; "
         + "to use the root of an archive, specify '.'; "
-        + "default value if left blank is the appropriate value for brooklyn,"
+        + "default value taken based on download URL (e.g. 'name' for 'http://path/name.tgz' or 'http://path/name-dist.tgz') "
+        + "falling back to an appropriate value for brooklyn, "
         + "e.g. 'brooklyn-"+BrooklynVersion.INSTANCE.getVersion()+"'", null);
 
     @SetFromFlag("managementUser")
@@ -95,7 +99,7 @@ public interface BrooklynNode extends SoftwareProcess, UsesJava {
 
     @SetFromFlag("managementPassword")
     ConfigKey<String> MANAGEMENT_PASSWORD =
-            ConfigKeys.newStringConfigKey("brooklynnode.managementPassword", "Password for MANAGEMENT_USER", "password");
+            ConfigKeys.newStringConfigKey("brooklynnode.managementPassword", "Password for MANAGEMENT_USER", null);
 
     /** useful e.g. with {@link BashCommands#generateKeyInDotSshIdRsaIfNotThere() } */
     @SetFromFlag("extraCustomizationScript")
@@ -117,6 +121,10 @@ public interface BrooklynNode extends SoftwareProcess, UsesJava {
     ConfigKey<String> LAUNCH_COMMAND = ConfigKeys.newStringConfigKey("brooklynnode.launch.command",
         "Path to the script to launch Brooklyn / the app relative to the subpath in the archive, defaulting to 'bin/brooklyn'", 
         "bin/brooklyn");
+
+    @SetFromFlag("launchParameters")
+    ConfigKey<String> EXTRA_LAUNCH_PARAMETERS = ConfigKeys.newStringConfigKey("brooklynnode.launch.parameters.extra",
+        "Launch parameters passed on the CLI, in addition to 'launch' and parameters implied by other config keys (and placed afterwards on the command line)");
 
     @SetFromFlag("launchCommandCreatesPidFile")
     ConfigKey<Boolean> LAUNCH_COMMAND_CREATES_PID_FILE = ConfigKeys.newBooleanConfigKey("brooklynnode.launch.command.pid.updated",
@@ -157,21 +165,27 @@ public interface BrooklynNode extends SoftwareProcess, UsesJava {
     
     @SetFromFlag("brooklynLocalPropertiesUri")
     public static final ConfigKey<String> BROOKLYN_LOCAL_PROPERTIES_URI = ConfigKeys.newStringConfigKey(
-            "brooklynnode.brooklynproperties.local.uri", "URI for the launch-specific brooklyn properties file (uploaded to ~/.brooklyn/brooklyn.properties)", null);
+            "brooklynnode.brooklynproperties.local.uri", "URI for the launch-specific brooklyn properties file", null);
 
     @SetFromFlag("brooklynLocalPropertiesContents")
     public static final ConfigKey<String> BROOKLYN_LOCAL_PROPERTIES_CONTENTS = ConfigKeys.newStringConfigKey(
-            "brooklynnode.brooklynproperties.local.contents", "Contents for the launch-specific brooklyn properties file (uploaded to ~/.brooklyn/brooklyn.properties)", null);
+            "brooklynnode.brooklynproperties.local.contents", "Contents for the launch-specific brooklyn properties file", null);
     
     // For use in testing primarily
+    /** @deprecated since 0.7.0; TODO this should support BOM files */
+    @Deprecated
     @SetFromFlag("brooklynCatalogRemotePath")
     public static final ConfigKey<String> BROOKLYN_CATALOG_REMOTE_PATH = ConfigKeys.newStringConfigKey(
             "brooklynnode.brooklyncatalog.remotepath", "Remote path for the brooklyn catalog.xml file to be uploaded", "${HOME}/.brooklyn/catalog.xml");
     
+    /** @deprecated since 0.7.0; TODO this should support BOM files */
+    @Deprecated
     @SetFromFlag("brooklynCatalogUri")
     public static final ConfigKey<String> BROOKLYN_CATALOG_URI = ConfigKeys.newStringConfigKey(
             "brooklynnode.brooklyncatalog.uri", "URI for the brooklyn catalog.xml file (uploaded to ~/.brooklyn/catalog.xml)", null);
 
+    /** @deprecated since 0.7.0; TODO this should support BOM files */
+    @Deprecated
     @SetFromFlag("brooklynCatalogContents")
     public static final ConfigKey<String> BROOKLYN_CATALOG_CONTENTS = ConfigKeys.newStringConfigKey(
             "brooklynnode.brooklyncatalog.contents", "Contents for the brooklyn catalog.xml file (uploaded to ~/.brooklyn/catalog.xml)", null);
@@ -216,10 +230,12 @@ public interface BrooklynNode extends SoftwareProcess, UsesJava {
 
     public static final AttributeSensor<URI> WEB_CONSOLE_URI = new BasicAttributeSensor<URI>(
             URI.class, "brooklynnode.webconsole.url", "URL of the brooklyn web-console");
+
+    public static final AttributeSensor<ManagementNodeState> MANAGEMENT_NODE_STATE = new BasicAttributeSensor<ManagementNodeState>(
+            ManagementNodeState.class, "brooklynnode.ha.state", "High-availability state of the management node (MASTER, HOT_STANDBY, etc)");
     
-    @SetFromFlag("noShutdownOnExit")
-    public static final ConfigKey<Boolean> NO_SHUTDOWN_ON_EXIT = ConfigKeys.newBooleanConfigKey("brooklynnode.noshutdownonexit", 
-        "Whether to shutdown entities on exit", false);
+    public static final ConfigKey<Duration> POLL_PERIOD = ConfigKeys.newConfigKey(Duration.class, "brooklynnode.poll_period",
+            "Frequency to poll for client sensors", Duration.seconds(2));
 
     public interface DeployBlueprintEffector {
         ConfigKey<Map<String,Object>> BLUEPRINT_CAMP_PLAN = new MapConfigKey<Object>(Object.class, "blueprintPlan",
@@ -243,7 +259,6 @@ public interface BrooklynNode extends SoftwareProcess, UsesJava {
         ConfigKey<Duration> REQUEST_TIMEOUT = ConfigKeys.newConfigKey(Duration.class, "requestTimeout", "Maximum time to block the request for the shutdown to finish, 0 to wait infinitely");
         ConfigKey<Duration> DELAY_FOR_HTTP_RETURN = ConfigKeys.newConfigKey(Duration.class, "delayForHttpReturn", "The delay before exiting the process, to permit the REST response to be returned");
         Effector<Void> SHUTDOWN = Effectors.effector(Void.class, "shutdown")
-            .description("Shutdown the remote brooklyn instance")
             .description("Shutdown the remote brooklyn instance (stops via the REST API only; leaves any VM)")
             .parameter(STOP_APPS_FIRST)
             .parameter(FORCE_SHUTDOWN_ON_ERROR)
@@ -258,7 +273,7 @@ public interface BrooklynNode extends SoftwareProcess, UsesJava {
     public interface StopNodeButLeaveAppsEffector {
         ConfigKey<Duration> TIMEOUT = ConfigKeys.newConfigKey(Duration.class, "timeout", "How long to wait before giving up on stopping the node", Duration.ONE_HOUR);
         Effector<Void> STOP_NODE_BUT_LEAVE_APPS = Effectors.effector(Void.class, "stopNodeButLeaveApps")
-                .description("Stop the node but if it was managing other applications, leave them running")
+                .description("Stop the Brooklyn process, and any VM created, and unmanage this entity; but if it was managing other applications, leave them running")
                 .parameter(TIMEOUT)
                 .buildAbstract();
     }
@@ -268,13 +283,32 @@ public interface BrooklynNode extends SoftwareProcess, UsesJava {
     public interface StopNodeAndKillAppsEffector {
         ConfigKey<Duration> TIMEOUT = ConfigKeys.newConfigKey(Duration.class, "timeout", "How long to wait before giving up on stopping the node", Duration.ONE_HOUR);
         Effector<Void> STOP_NODE_AND_KILL_APPS = Effectors.effector(Void.class, "stopNodeAndKillApps")
-                .description("Stop all apps managed by the node and shutdown the node")
+                .description("Stop all apps managed by the Brooklyn process, stop the process, and any VM created, and unmanage this entity")
                 .parameter(TIMEOUT)
                 .buildAbstract();
     }
 
     public static final Effector<Void> STOP_NODE_AND_KILL_APPS = StopNodeAndKillAppsEffector.STOP_NODE_AND_KILL_APPS;
 
-    public EntityHttpClient http();
+    public interface SetHighAvailabilityPriorityEffector {
+        ConfigKey<Integer> PRIORITY = ConfigKeys.newIntegerConfigKey("priority", "HA priority");
+        Effector<Integer> SET_HIGH_AVAILABILITY_PRIORITY = Effectors.effector(Integer.class, "setHighAvailabilityPriority")
+                .description("Set the HA priority on the node, returning the old priority")
+                .parameter(PRIORITY)
+                .buildAbstract();
+    }
 
+    public static final Effector<Integer> SET_HIGH_AVAILABILITY_PRIORITY = SetHighAvailabilityPriorityEffector.SET_HIGH_AVAILABILITY_PRIORITY;
+
+    public interface SetHighAvailabilityModeEffector {
+        ConfigKey<HighAvailabilityMode> MODE = ConfigKeys.newConfigKey(HighAvailabilityMode.class, "mode", "HA mode");
+        Effector<ManagementNodeState> SET_HIGH_AVAILABILITY_MODE = Effectors.effector(ManagementNodeState.class, "setHighAvailabilityMode")
+                .description("Set the HA mode on the node, returning the existing state")
+                .parameter(MODE)
+                .buildAbstract();
+    }
+
+    public static final Effector<ManagementNodeState> SET_HIGH_AVAILABILITY_MODE = SetHighAvailabilityModeEffector.SET_HIGH_AVAILABILITY_MODE;
+
+    public EntityHttpClient http();
 }

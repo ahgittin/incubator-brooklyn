@@ -28,10 +28,10 @@ import brooklyn.enricher.RollingTimeWindowMeanEnricher.ConfidenceQualifiedNumber
 import brooklyn.entity.basic.AbstractApplication
 import brooklyn.entity.basic.AbstractEntity
 import brooklyn.entity.basic.Entities
-import brooklyn.entity.basic.EntityLocal
-import brooklyn.event.Sensor
+import org.apache.brooklyn.api.entity.basic.EntityLocal
+import org.apache.brooklyn.api.event.Sensor
 import brooklyn.event.basic.BasicAttributeSensor
-import brooklyn.management.SubscriptionContext
+import org.apache.brooklyn.api.management.SubscriptionContext
 
 class RollingTimeWindowMeanEnricherTest {
     
@@ -93,9 +93,17 @@ class RollingTimeWindowMeanEnricherTest {
     }
     
     @Test
-    public void testSingleValueAverage() {
+    public void testSingleValueTimeAverage() {
         averager.onEvent(intSensor.newEvent(producer, 10), 1000)
         average = averager.getAverage(1000)
+        assertEquals(average.confidence, 0d)
+    }
+    
+    @Test
+    public void testTwoValueAverageForPeriod() {
+        averager.onEvent(intSensor.newEvent(producer, 10), 1000)
+        averager.onEvent(intSensor.newEvent(producer, 10), 2000)
+        average = averager.getAverage(2000)
         assertEquals(average.value, 10 /1d)
         assertEquals(average.confidence, 1d)
     }

@@ -20,18 +20,20 @@ package brooklyn.entity.proxying;
 
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.Feed;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.api.policy.Enricher;
+import org.apache.brooklyn.api.policy.EnricherSpec;
+import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.api.policy.PolicySpec;
+import org.apache.brooklyn.core.management.internal.ManagementContextInternal;
+import org.apache.brooklyn.core.policy.basic.AbstractPolicy;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+
 import brooklyn.config.ConfigKey;
 import brooklyn.enricher.basic.AbstractEnricher;
-import brooklyn.entity.Feed;
-import brooklyn.management.ManagementContext;
-import brooklyn.management.internal.ManagementContextInternal;
-import brooklyn.policy.Enricher;
-import brooklyn.policy.EnricherSpec;
-import brooklyn.policy.Policy;
-import brooklyn.policy.PolicySpec;
-import brooklyn.policy.basic.AbstractPolicy;
+import brooklyn.entity.basic.AbstractEntity;
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.config.ConfigBag;
 import brooklyn.util.exceptions.Exceptions;
 
 /**
@@ -106,6 +108,10 @@ public class InternalPolicyFactory extends InternalFactory {
             if (spec.getDisplayName()!=null)
                 ((AbstractPolicy)pol).setDisplayName(spec.getDisplayName());
             
+            if (spec.getCatalogItemId()!=null) {
+                ((AbstractPolicy)pol).setCatalogItemId(spec.getCatalogItemId());
+            }
+            
             pol.tags().addTags(spec.getTags());
             
             if (isNewStyle(clazz)) {
@@ -118,7 +124,7 @@ public class InternalPolicyFactory extends InternalFactory {
             // which the user may have overridden? 
             // Also see InternalLocationFactory for same issue, which this code is based on.
             for (Map.Entry<ConfigKey<?>, Object> entry : spec.getConfig().entrySet()) {
-                ((AbstractPolicy)pol).setConfig((ConfigKey)entry.getKey(), entry.getValue());
+                pol.config().set((ConfigKey)entry.getKey(), entry.getValue());
             }
             ((AbstractPolicy)pol).init();
             
@@ -143,6 +149,10 @@ public class InternalPolicyFactory extends InternalFactory {
             if (spec.getDisplayName()!=null)
                 ((AbstractEnricher)enricher).setDisplayName(spec.getDisplayName());
             
+            if (spec.getCatalogItemId()!=null) {
+                ((AbstractEnricher)enricher).setCatalogItemId(spec.getCatalogItemId());
+            }
+            
             enricher.tags().addTags(spec.getTags());
             
             if (isNewStyle(clazz)) {
@@ -155,7 +165,7 @@ public class InternalPolicyFactory extends InternalFactory {
             // which the user may have overridden? 
             // Also see InternalLocationFactory for same issue, which this code is based on.
             for (Map.Entry<ConfigKey<?>, Object> entry : spec.getConfig().entrySet()) {
-                ((AbstractEnricher)enricher).setConfig((ConfigKey)entry.getKey(), entry.getValue());
+                enricher.config().set((ConfigKey)entry.getKey(), entry.getValue());
             }
             ((AbstractEnricher)enricher).init();
             

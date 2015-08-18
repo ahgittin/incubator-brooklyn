@@ -18,6 +18,7 @@
  */
 package brooklyn.entity.basic;
 
+import brooklyn.util.guava.Maybe;
 import groovy.time.TimeDuration;
 
 import java.util.Collection;
@@ -28,40 +29,49 @@ import java.util.TimerTask;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.drivers.DriverDependentEntity;
+import org.apache.brooklyn.api.entity.drivers.EntityDriverManager;
+import org.apache.brooklyn.api.event.SensorEvent;
+import org.apache.brooklyn.api.event.SensorEventListener;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.location.MachineLocation;
+import org.apache.brooklyn.api.location.MachineProvisioningLocation;
+import org.apache.brooklyn.api.location.PortRange;
+import org.apache.brooklyn.api.management.Task;
+import org.apache.brooklyn.api.policy.EnricherSpec;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.flags.TypeCoercions;
+import org.apache.brooklyn.core.util.task.DynamicTasks;
+import org.apache.brooklyn.core.util.task.Tasks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import brooklyn.config.ConfigKey;
-import brooklyn.enricher.Enrichers;
-import brooklyn.entity.Entity;
+import brooklyn.enricher.basic.AbstractEnricher;
+import brooklyn.entity.basic.Lifecycle.Transition;
 import brooklyn.entity.basic.ServiceStateLogic.ServiceNotUpLogic;
-import brooklyn.entity.drivers.DriverDependentEntity;
-import brooklyn.entity.drivers.EntityDriverManager;
-import brooklyn.entity.effector.EffectorBody;
 import brooklyn.event.feed.function.FunctionFeed;
 import brooklyn.event.feed.function.FunctionPollConfig;
-import brooklyn.location.Location;
-import brooklyn.location.MachineLocation;
-import brooklyn.location.MachineProvisioningLocation;
-import brooklyn.location.PortRange;
-import brooklyn.location.basic.LocationConfigKeys;
-import brooklyn.location.basic.Machines;
-import brooklyn.location.cloud.CloudLocationConfig;
-import brooklyn.management.Task;
+
+import org.apache.brooklyn.location.basic.LocationConfigKeys;
+import org.apache.brooklyn.location.basic.SshMachineLocation;
+import org.apache.brooklyn.location.cloud.CloudLocationConfig;
+
 import brooklyn.util.collections.MutableMap;
 import brooklyn.util.collections.MutableSet;
-import brooklyn.util.config.ConfigBag;
 import brooklyn.util.exceptions.Exceptions;
-import brooklyn.util.guava.Functionals;
-import brooklyn.util.task.DynamicTasks;
-import brooklyn.util.task.Tasks;
 import brooklyn.util.time.CountdownTimer;
 import brooklyn.util.time.Duration;
 import brooklyn.util.time.Time;
 
 import com.google.common.base.Functions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
+import com.google.common.reflect.TypeToken;
 
 /**
  * An {@link Entity} representing a piece of software which can be installed, run, and controlled.
@@ -77,9 +87,6 @@ public abstract class SoftwareProcessImpl extends AbstractEntity implements Soft
 
     /** @see #connectServiceUpIsRunning() */
     private volatile FunctionFeed serviceProcessIsRunning;
-
-    private static final SoftwareProcessDriverLifecycleEffectorTasks LIFECYCLE_TASKS =
-            new SoftwareProcessDriverLifecycleEffectorTasks();
 
     protected boolean connectedSensors = false;
     
@@ -105,11 +112,12 @@ public abstract class SoftwareProcessImpl extends AbstractEntity implements Soft
         return getAttribute(PROVISIONING_LOCATION);
     }
     
+    @Override
     public SoftwareProcessDriver getDriver() {
         return driver;
     }
 
-      protected SoftwareProcessDriver newDriver(MachineLocation loc){
+    protected SoftwareProcessDriver newDriver(MachineLocation loc){
         EntityDriverManager entityDriverManager = getManagementContext().getEntityDriverManager();
         return (SoftwareProcessDriver)entityDriverManager.build(this, loc);
     }
@@ -121,23 +129,123 @@ public abstract class SoftwareProcessImpl extends AbstractEntity implements Soft
     @Override
     public void init() {
         super.init();
-        LIFECYCLE_TASKS.attachLifecycleEffectors(this);
+        getLifecycleEffectorTasks().attachLifecycleEffectors(this);
     }
     
     @Override
     protected void initEnrichers() {
         super.initEnrichers();
-        ServiceNotUpLogic.updateNotUpIndicator(this, SERVICE_PROCESS_IS_RUNNING, "No information yet about whether this service is running");
-        // add an indicator above so that if is_running comes through it clears the map and guarantees an update
-        addEnricher(Enrichers.builder().updatingMap(Attributes.SERVICE_NOT_UP_INDICATORS)
-            .from(SERVICE_PROCESS_IS_RUNNING)
-            .computing(Functionals.ifNotEquals(true).value("The software process for this entity does not appear to be running"))
-            .build());
+        ServiceNotUpLogic.updateNotUpIndicator(this, SERVICE_PROCESS_IS_RUNNING, "No information yet on whether this service is running");
+        // add an indicator above so that if is_running comes through, the map is cleared and an update is guaranteed
+        addEnricher(EnricherSpec.create(UpdatingNotUpFromServiceProcessIsRunning.class).uniqueTag("service-process-is-running-updating-not-up"));
+        addEnricher(EnricherSpec.create(ServiceNotUpDiagnosticsCollector.class).uniqueTag("service-not-up-diagnostics-collector"));
     }
     
-      /**
-       * Called before driver.start; guarantees the driver will exist, and locations will have been set.
-       */
+    /**
+     * @since 0.8.0
+     */
+    protected static class ServiceNotUpDiagnosticsCollector extends AbstractEnricher implements SensorEventListener<Object> {
+        public ServiceNotUpDiagnosticsCollector() {
+        }
+        
+        @Override
+        public void setEntity(EntityLocal entity) {
+            super.setEntity(entity);
+            if (!(entity instanceof SoftwareProcess)) {
+                throw new IllegalArgumentException("Expected SoftwareProcess, but got entity "+entity);
+            }
+            subscribe(entity, Attributes.SERVICE_UP, this);
+            onUpdated();
+        }
+
+        @Override
+        public void onEvent(SensorEvent<Object> event) {
+            onUpdated();
+        }
+
+        protected void onUpdated() {
+            Boolean up = entity.getAttribute(SERVICE_UP);
+            if (up == null || up) {
+                entity.setAttribute(ServiceStateLogic.SERVICE_NOT_UP_DIAGNOSTICS, ImmutableMap.<String, Object>of());
+            } else {
+                ((SoftwareProcess)entity).populateServiceNotUpDiagnostics();
+            }
+        }
+    }
+    
+    @Override
+    public void populateServiceNotUpDiagnostics() {
+        if (getDriver() == null) {
+            ServiceStateLogic.updateMapSensorEntry(this, ServiceStateLogic.SERVICE_NOT_UP_DIAGNOSTICS, "driver", "No driver");
+            return;
+        }
+
+        Location loc = getDriver().getLocation();
+        if (loc instanceof SshMachineLocation) {
+            if (!((SshMachineLocation)loc).isSshable()) {
+                ServiceStateLogic.updateMapSensorEntry(
+                        this, 
+                        ServiceStateLogic.SERVICE_NOT_UP_DIAGNOSTICS, 
+                        "sshable", 
+                        "The machine for this entity does not appear to be sshable");
+            }
+            return;
+        }
+
+        boolean processIsRunning = getDriver().isRunning();
+        if (!processIsRunning) {
+            ServiceStateLogic.updateMapSensorEntry(
+                    this, 
+                    ServiceStateLogic.SERVICE_NOT_UP_DIAGNOSTICS, 
+                    SERVICE_PROCESS_IS_RUNNING.getName(), 
+                    "The software process for this entity does not appear to be running");
+        }
+    }
+
+    /** subscribes to SERVICE_PROCESS_IS_RUNNING and SERVICE_UP; the latter has no effect if the former is set,
+     * but to support entities which set SERVICE_UP directly we want to make sure that the absence of 
+     * SERVICE_PROCESS_IS_RUNNING does not trigger any not-up indicators */
+    protected static class UpdatingNotUpFromServiceProcessIsRunning extends AbstractEnricher implements SensorEventListener<Object> {
+        public UpdatingNotUpFromServiceProcessIsRunning() {}
+        
+        @Override
+        public void setEntity(EntityLocal entity) {
+            super.setEntity(entity);
+            subscribe(entity, SERVICE_PROCESS_IS_RUNNING, this);
+            subscribe(entity, Attributes.SERVICE_UP, this);
+            onUpdated();
+        }
+
+        @Override
+        public void onEvent(SensorEvent<Object> event) {
+            onUpdated();
+        }
+
+        protected void onUpdated() {
+            Boolean isRunning = entity.getAttribute(SERVICE_PROCESS_IS_RUNNING);
+            if (Boolean.FALSE.equals(isRunning)) {
+                ServiceNotUpLogic.updateNotUpIndicator(entity, SERVICE_PROCESS_IS_RUNNING, "The software process for this entity does not appear to be running");
+                return;
+            }
+            if (Boolean.TRUE.equals(isRunning)) {
+                ServiceNotUpLogic.clearNotUpIndicator(entity, SERVICE_PROCESS_IS_RUNNING);
+                return;
+            }
+            // no info on "isRunning"
+            Boolean isUp = entity.getAttribute(Attributes.SERVICE_UP);
+            if (Boolean.TRUE.equals(isUp)) {
+                // if service explicitly set up, then don't apply our rule
+                ServiceNotUpLogic.clearNotUpIndicator(entity, SERVICE_PROCESS_IS_RUNNING);
+                return;
+            }
+            // service not up, or no info
+            ServiceNotUpLogic.updateNotUpIndicator(entity, SERVICE_PROCESS_IS_RUNNING, "No information on whether this service is running");
+        }
+    }
+    
+    /**
+     * Called before driver.start; guarantees the driver will exist, and locations will have been set.
+     */
     protected void preStart() {
     }
     
@@ -173,6 +281,7 @@ public abstract class SoftwareProcessImpl extends AbstractEntity implements Soft
                 .entity(this)
                 .period(Duration.FIVE_SECONDS)
                 .poll(new FunctionPollConfig<Boolean, Boolean>(SERVICE_PROCESS_IS_RUNNING)
+                        .suppressDuplicates(true)
                         .onException(Functions.constant(Boolean.FALSE))
                         .callable(new Callable<Boolean>() {
                             public Boolean call() {
@@ -203,6 +312,9 @@ public abstract class SoftwareProcessImpl extends AbstractEntity implements Soft
     protected void postStart() {
     }
     
+    protected void preStopConfirmCustom() {
+    }
+    
     protected void preStop() {
         // note asymmetry that disconnectSensors is done in the entity not the driver
         // whereas on start the *driver* calls connectSensors, before calling postStart,
@@ -210,12 +322,30 @@ public abstract class SoftwareProcessImpl extends AbstractEntity implements Soft
         // TODO feels like that confusion could be eliminated with a single place for pre/post logic!)
         log.debug("disconnecting sensors for "+this+" in entity.preStop");
         disconnectSensors();
+        
+        // Must set the serviceProcessIsRunning explicitly to false - we've disconnected the sensors
+        // so nothing else will.
+        // Otherwise, if restarted, there will be no change to serviceProcessIsRunning, so the
+        // serviceUpIndicators will not change, so serviceUp will not be reset.
+        // TODO Is there a race where disconnectSensors could leave a task of the feeds still running
+        // which could set serviceProcessIsRunning to true again before the task completes and the feed
+        // is fully terminated?
+        setAttribute(SoftwareProcess.SERVICE_PROCESS_IS_RUNNING, false);
     }
 
     /**
      * Called after the rest of stop has completed (after VM deprovisioned, but before state set to STOPPED)
      */
     protected void postStop() {
+    }
+
+    /**
+     * Called before driver.restart; guarantees the driver will exist, and locations will have been set.
+     */
+    protected void preRestart() {
+    }
+
+    protected void postRestart() {
     }
 
     /**
@@ -285,10 +415,17 @@ public abstract class SoftwareProcessImpl extends AbstractEntity implements Soft
     
     @Override
     public void rebind() {
-        Lifecycle state = getAttribute(SERVICE_STATE_ACTUAL);
-        if (state == null || state != Lifecycle.RUNNING) {
-            log.warn("On rebind of {}, not calling software process rebind hooks because state is {}", this, state);
+        //SERVICE_STATE_ACTUAL might be ON_FIRE due to a temporary condition (problems map non-empty)
+        //Only if the expected state is ON_FIRE then the entity has permanently failed.
+        Transition expectedState = getAttribute(SERVICE_STATE_EXPECTED);
+        if (expectedState == null || expectedState.getState() != Lifecycle.RUNNING) {
+            log.warn("On rebind of {}, not calling software process rebind hooks because expected state is {}", this, expectedState);
             return;
+        }
+
+        Lifecycle actualState = getAttribute(SERVICE_STATE_ACTUAL);
+        if (actualState == null || actualState != Lifecycle.RUNNING) {
+            log.warn("Rebinding entity {}, even though actual state is {}. Expected state is {}", new Object[] {this, actualState, expectedState});
         }
 
         // e.g. rebinding to a running instance
@@ -323,35 +460,19 @@ public abstract class SoftwareProcessImpl extends AbstractEntity implements Soft
         Entities.waitForServiceUp(this, Duration.of(duration, units));
     }
 
-    /** @deprecated since 0.7.0, this isn't a general test for modifiability, and was hardly ever used (now never used) */
-    @Deprecated
-    public void checkModifiable() {
-        Lifecycle state = getAttribute(SERVICE_STATE_ACTUAL);
-        if (getAttribute(SERVICE_STATE_ACTUAL) == Lifecycle.RUNNING) return;
-        if (getAttribute(SERVICE_STATE_ACTUAL) == Lifecycle.STARTING) return;
-        throw new IllegalStateException("Cannot configure entity "+this+" in state "+state);
-    }
-
-    /** @deprecated since 0.6.0 use/override method in {@link SoftwareProcessDriverLifecycleEffectorTasks} */
-    protected final void startInLocation(Collection<? extends Location> locations) {}
-
-    /** @deprecated since 0.6.0 use/override method in {@link SoftwareProcessDriverLifecycleEffectorTasks} */
-    protected final void startInLocation(Location location) {}
-
-    /** @deprecated since 0.6.0 use/override method in {@link SoftwareProcessDriverLifecycleEffectorTasks} */
-    protected final void startInLocation(final MachineProvisioningLocation<?> location) {}
-    
-    /** @deprecated since 0.6.0 use/override method in {@link SoftwareProcessDriverLifecycleEffectorTasks} */
-    protected final void startInLocation(MachineLocation machine) {}
-
-    /** @deprecated since 0.6.0 use/override method in {@link SoftwareProcessDriverLifecycleEffectorTasks} */
-    protected final void callStartHooks() {}
-    
     protected Map<String,Object> obtainProvisioningFlags(MachineProvisioningLocation location) {
         ConfigBag result = ConfigBag.newInstance(location.getProvisioningFlags(ImmutableList.of(getClass().getName())));
         result.putAll(getConfig(PROVISIONING_PROPERTIES));
         if (result.get(CloudLocationConfig.INBOUND_PORTS) == null) {
             Collection<Integer> ports = getRequiredOpenPorts();
+            Object requiredPorts = result.get(CloudLocationConfig.ADDITIONAL_INBOUND_PORTS);
+            if (requiredPorts instanceof Integer) {
+                ports.add((Integer) requiredPorts);
+            } else if (requiredPorts instanceof Iterable) {
+                for (Object o : (Iterable<?>) requiredPorts) {
+                    if (o instanceof Integer) ports.add((Integer) o);
+                }
+            }
             if (ports != null && ports.size() > 0) result.put(CloudLocationConfig.INBOUND_PORTS, ports);
         }
         result.put(LocationConfigKeys.CALLER_CONTEXT, this);
@@ -359,23 +480,42 @@ public abstract class SoftwareProcessImpl extends AbstractEntity implements Soft
     }
 
     /** returns the ports that this entity wants to use;
-     * default implementation returns 22 plus first value for each PortAttributeSensorAndConfigKey config key PortRange.
+     * default implementation returns {@link SoftwareProcess#REQUIRED_OPEN_LOGIN_PORTS} plus first value 
+     * for each {@link brooklyn.event.basic.PortAttributeSensorAndConfigKey} config key {@link PortRange}
+     * plus any ports defined with a config keys ending in {@code .port}.
      */
     protected Collection<Integer> getRequiredOpenPorts() {
-        Set<Integer> ports = MutableSet.of(22);
-        for (ConfigKey k: getEntityType().getConfigKeys()) {
-            if (PortRange.class.isAssignableFrom(k.getType())) {
-                PortRange p = (PortRange)getConfig(k);
+        Set<Integer> ports = MutableSet.copyOf(getConfig(REQUIRED_OPEN_LOGIN_PORTS));
+        Map<ConfigKey<?>, ?> allConfig = config().getBag().getAllConfigAsConfigKeyMap();
+        Set<ConfigKey<?>> configKeys = Sets.newHashSet(allConfig.keySet());
+        configKeys.addAll(getEntityType().getConfigKeys());
+
+        /* TODO: This won't work if there's a port collision, which will cause the corresponding port attribute
+           to be incremented until a free port is found. In that case the entity will use the free port, but the
+           firewall will open the initial port instead. Mostly a problem for SameServerEntity, localhost location.
+         */
+        for (ConfigKey<?> k: configKeys) {
+            Object value;
+            if (PortRange.class.isAssignableFrom(k.getType()) || k.getName().matches(".*\\.port")) {
+                value = config().get(k);
+            } else {
+                // config().get() will cause this to block until all config has been resolved
+                // using config().getRaw(k) means that we won't be able to use e.g. 'http.port: $brooklyn:component("x").attributeWhenReady("foo")'
+                // but that's unlikely to be used
+                Maybe<Object> maybeValue = config().getRaw(k);
+                value = maybeValue.isPresent() ? maybeValue.get() : null;
+            }
+
+            Maybe<PortRange> maybePortRange = TypeCoercions.tryCoerce(value, new TypeToken<PortRange>() {});
+
+            if (maybePortRange.isPresentAndNonNull()) {
+                PortRange p = maybePortRange.get();
                 if (p != null && !p.isEmpty()) ports.add(p.iterator().next());
             }
-        }
+        }        
+        
         log.debug("getRequiredOpenPorts detected default {} for {}", ports, this);
         return ports;
-    }
-
-    /** @deprecated since 0.6.0 use {@link Machines#findSubnetHostname(Entity)} */ @Deprecated
-    public String getLocalHostname() {
-        return Machines.findSubnetHostname(this).get();
     }
 
     protected void initDriver(MachineLocation machine) {
@@ -410,17 +550,31 @@ public abstract class SoftwareProcessImpl extends AbstractEntity implements Soft
         CountdownTimer timer = startTimeout.countdownTimer();
         boolean isRunningResult = false;
         long delay = 100;
+        Exception firstFailure = null;
         while (!isRunningResult && !timer.isExpired()) {
             Time.sleep(delay);
             try {
                 isRunningResult = driver.isRunning();
+                if (log.isDebugEnabled()) log.debug("checked {}, 'is running' returned: {}", this, isRunningResult);
             } catch (Exception  e) {
-                ServiceStateLogic.setExpectedState(this, Lifecycle.ON_FIRE);
-                // provide extra context info, as we're seeing this happen in strange circumstances
-                if (driver==null) throw new IllegalStateException(this+" concurrent start and shutdown detected");
-                throw new IllegalStateException("Error detecting whether "+this+" is running: "+e, e);
+                Exceptions.propagateIfFatal(e);
+
+                isRunningResult = false;
+                if (driver != null) {
+                    String msg = "checked " + this + ", 'is running' threw an exception; logging subsequent exceptions at debug level";
+                    if (firstFailure == null) {
+                        log.error(msg, e);
+                    } else {
+                        log.debug(msg, e);
+                    }
+                } else {
+                    // provide extra context info, as we're seeing this happen in strange circumstances
+                    log.error(this+" concurrent start and shutdown detected", e);
+                }
+                if (firstFailure == null) {
+                    firstFailure = e;
+                }
             }
-            if (log.isDebugEnabled()) log.debug("checked {}, is running returned: {}", this, isRunningResult);
             // slow exponential delay -- 1.1^N means after 40 tries and 50s elapsed, it reaches the max of 5s intervals
             // TODO use Repeater 
             delay = Math.min(delay*11/10, 5000);
@@ -428,27 +582,32 @@ public abstract class SoftwareProcessImpl extends AbstractEntity implements Soft
         if (!isRunningResult) {
             String msg = "Software process entity "+this+" did not pass is-running check within "+
                     "the required "+startTimeout+" limit ("+timer.getDurationElapsed().toStringRounded()+" elapsed)";
+            if (firstFailure != null) {
+                msg += "; check failed at least once with exception: " + firstFailure.getMessage() + ", see logs for details";
+            }
             log.warn(msg+" (throwing)");
             ServiceStateLogic.setExpectedState(this, Lifecycle.RUNNING);
-            throw new IllegalStateException(msg);
+            throw new IllegalStateException(msg, firstFailure);
         }
     }
 
     /**
-     * If custom behaviour is required by sub-classes, consider overriding {@link #doStart(Collection)})}.
+     * If custom behaviour is required by sub-classes, consider overriding {@link #preStart()} or {@link #postStart()})}.
+     * Also consider adding additional work via tasks, executed using {@link DynamicTasks#queue(String, Callable)}.
      */
     @Override
     public final void start(final Collection<? extends Location> locations) {
         if (DynamicTasks.getTaskQueuingContext() != null) {
-            doStart(locations);
+            getLifecycleEffectorTasks().start(locations);
         } else {
-            Task<?> task = Tasks.builder().name("start (sequential)").body(new Runnable() { public void run() { doStart(locations); } }).build();
+            Task<?> task = Tasks.builder().name("start (sequential)").body(new Runnable() { public void run() { getLifecycleEffectorTasks().start(locations); } }).build();
             Entities.submit(this, task).getUnchecked();
         }
     }
 
     /**
-     * If custom behaviour is required by sub-classes, consider overriding {@link #doStop()}.
+     * If custom behaviour is required by sub-classes, consider overriding  {@link #preStop()} or {@link #postStop()}.
+     * Also consider adding additional work via tasks, executed using {@link DynamicTasks#queue(String, Callable)}.
      */
     @Override
     public final void stop() {
@@ -461,62 +620,29 @@ public abstract class SoftwareProcessImpl extends AbstractEntity implements Soft
         // or do a SERVICE_STATE check before setting SERVICE_UP to true in a feed (?).
 
         if (DynamicTasks.getTaskQueuingContext() != null) {
-            doStop();
+            getLifecycleEffectorTasks().stop(ConfigBag.EMPTY);
         } else {
-            Task<?> task = Tasks.builder().name("stop").body(new Runnable() { public void run() { doStop(); } }).build();
+            Task<?> task = Tasks.builder().name("stop").body(new Runnable() { public void run() { getLifecycleEffectorTasks().stop(ConfigBag.EMPTY); } }).build();
             Entities.submit(this, task).getUnchecked();
         }
     }
 
     /**
-     * If custom behaviour is required by sub-classes, consider overriding {@link #doRestart()}.
+     * If custom behaviour is required by sub-classes, consider overriding {@link #preRestart()} or {@link #postRestart()}.
+     * Also consider adding additional work via tasks, executed using {@link DynamicTasks#queue(String, Callable)}.
      */
     @Override
     public final void restart() {
         if (DynamicTasks.getTaskQueuingContext() != null) {
-            doRestart(ConfigBag.EMPTY);
+            getLifecycleEffectorTasks().restart(ConfigBag.EMPTY);
         } else {
-            Task<?> task = Tasks.builder().name("restart").body(new Runnable() { public void run() { doRestart(ConfigBag.EMPTY); } }).build();
+            Task<?> task = Tasks.builder().name("restart").body(new Runnable() { public void run() { getLifecycleEffectorTasks().restart(ConfigBag.EMPTY); } }).build();
             Entities.submit(this, task).getUnchecked();
         }
     }
     
-    /**
-     * To be overridden instead of {@link #start(Collection)}; sub-classes should call {@code super.doStart(locations)} and should
-     * add do additional work via tasks, executed using {@link DynamicTasks#queue(String, Callable)}.
-     * @deprecated since 0.7.0 override {@link #preStart()} or {@link #postStart()}, 
-     * or define a {@link SoftwareProcessDriverLifecycleEffectorTasks} subclass if more complex behaviour needed
-     * (this method is no longer invoked by the {@link EffectorBody} call path, 
-     * hence deprecating it and marking it final to highlight incompatibilities at compile time)
-     */
-    @Deprecated
-    protected final void doStart(Collection<? extends Location> locations) {
-        LIFECYCLE_TASKS.start(locations);
-    }
-    
-    /**
-     * To be overridden instead of {@link #stop()}; sub-classes should call {@code super.doStop()} and should
-     * add do additional work via tasks, executed using {@link DynamicTasks#queue(String, Callable)}.
-     * @deprecated since 0.7.0 override {@link #preStop()} or {@link #postStop()}; see note on {@link #doStart(Collection)} for more information 
-     */
-    @Deprecated
-    protected final void doStop() {
-        LIFECYCLE_TASKS.stop();
-    }
-    
-    /**
-     * To be overridden instead of {@link #restart()}; sub-classes should call {@code super.doRestart(ConfigBag)} and should
-     * add do additional work via tasks, executed using {@link DynamicTasks#queue(String, Callable)}.
-     * @deprecated since 0.7.0; see note on {@link #doStart(Collection)} for more information 
-     */
-    @Deprecated
-    protected final void doRestart(ConfigBag parameters) {
-        LIFECYCLE_TASKS.restart(parameters);
+    protected SoftwareProcessDriverLifecycleEffectorTasks getLifecycleEffectorTasks() {
+        return getConfig(LIFECYCLE_EFFECTOR_TASKS);
     }
 
-    @Deprecated /** @deprecated since 0.7.0 see {@link #doRestart(ConfigBag)} */
-    protected final void doRestart() {
-        doRestart(ConfigBag.EMPTY);
-    }
-    
 }

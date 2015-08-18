@@ -19,7 +19,7 @@
 name: java-cluster-db-example
 location: localhost
 services:
-- serviceType: brooklyn.entity.webapp.ControlledDynamicWebAppCluster
+- serviceType: org.apache.brooklyn.entity.webapp.ControlledDynamicWebAppCluster
   name: My Web
   brooklyn.config:
     wars.root: http://search.maven.org/remotecontent?filepath=io/brooklyn/example/brooklyn-example-hello-world-sql-webapp/0.6.0-M2/brooklyn-example-hello-world-sql-webapp-0.6.0-M2.war
@@ -34,7 +34,7 @@ services:
         - visitors
         - brooklyn
         - br00k11n
-- serviceType: brooklyn.entity.database.mysql.MySqlNode
+- serviceType: org.apache.brooklyn.entity.database.mysql.MySqlNode
   name: My DB
   id: db
   brooklyn.config:

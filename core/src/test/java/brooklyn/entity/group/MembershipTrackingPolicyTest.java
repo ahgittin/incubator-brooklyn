@@ -25,22 +25,24 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.proxying.EntitySpec;
+import org.apache.brooklyn.api.event.Sensor;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.management.EntityManager;
+import org.apache.brooklyn.api.policy.PolicySpec;
+import org.apache.brooklyn.test.entity.TestEntity;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import brooklyn.entity.BrooklynAppUnitTestSupport;
-import brooklyn.entity.Entity;
 import brooklyn.entity.basic.BasicGroup;
 import brooklyn.entity.basic.Entities;
-import brooklyn.entity.proxying.EntitySpec;
 import brooklyn.entity.trait.Startable;
-import brooklyn.event.Sensor;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.SimulatedLocation;
-import brooklyn.management.EntityManager;
-import brooklyn.policy.PolicySpec;
+
+import org.apache.brooklyn.location.basic.SimulatedLocation;
+
 import brooklyn.test.Asserts;
-import brooklyn.test.entity.TestEntity;
 import brooklyn.util.collections.MutableMap;
 
 import com.google.common.base.Objects;

@@ -18,12 +18,17 @@
  */
 package brooklyn.entity.rebind.transformer;
 
+import java.util.Collection;
 import java.util.Map;
+import java.util.Map.Entry;
+
+import org.apache.brooklyn.core.util.ResourceUtils;
+import org.apache.brooklyn.core.util.text.TemplateProcessor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import brooklyn.entity.rebind.transformer.CompoundTransformer.Builder;
-import brooklyn.util.ResourceUtils;
 import brooklyn.util.exceptions.Exceptions;
-import brooklyn.util.text.TemplateProcessor;
 import brooklyn.util.yaml.Yamls;
 
 import com.google.common.annotations.Beta;
@@ -32,6 +37,7 @@ import com.google.common.collect.Iterables;
 
 @Beta
 public class CompoundTransformerLoader {
+    private static final Logger LOG = LoggerFactory.getLogger(CompoundTransformerLoader.class);
 
     // TODO Improve error handing so get nicer errors.
     // TODO Improve names (e.g. always camel case?)
@@ -40,11 +46,13 @@ public class CompoundTransformerLoader {
     public static CompoundTransformer load(String contents) {
         CompoundTransformer.Builder builder = CompoundTransformer.builder();
         Iterable<Object> toplevel = Yamls.parseAll(contents);
-        @SuppressWarnings("unchecked")
-        Map<String, Map<?,?>> rules = (Map<String, Map<?,?>>) ((Map<?,?>)Iterables.getOnlyElement(toplevel));
-        for (Map.Entry<String, Map<?,?>> entry : rules.entrySet()) {
-            addRule(builder, entry.getKey(), entry.getValue());
+        Collection<?> rules = (Collection<?>)Iterables.getOnlyElement(toplevel);
+        for (Object obj : rules) {
+            Map<?, ?> map = (Map<?, ?>)obj;
+            Entry<?, ?> entry = Iterables.getOnlyElement(map.entrySet());
+            addRule(builder, (String)entry.getKey(), (Map<?, ?>)entry.getValue());
         }
+        LOG.info("Loaded " + rules.size() + " transforms");
         return builder.build();
     }
 
@@ -53,6 +61,10 @@ public class CompoundTransformerLoader {
             String oldVal = (String) args.get("old_val");
             String newVal = (String) args.get("new_val");
             builder.renameClass(oldVal, newVal);
+        } else if (name.equals("renameClassTag")) {
+            String oldVal = (String) args.get("old_val");
+            String newVal = (String) args.get("new_val");
+            builder.renameClassTag(oldVal, newVal);
         } else if (name.equals("renameType")) {
             String oldVal = (String) args.get("old_val");
             String newVal = (String) args.get("new_val");
@@ -62,13 +74,17 @@ public class CompoundTransformerLoader {
             String oldVal = (String) args.get("old_val");
             String newVal = (String) args.get("new_val");
             builder.renameField(clazz, oldVal, newVal);
+        } else if (name.equals("catalogItemId")) {
+            builder.changeCatalogItemId(
+                (String) args.get("old_symbolic_name"), checkString(args.get("old_version"), "old_version"),
+                (String) args.get("new_symbolic_name"), checkString(args.get("new_version"), "new_version"));
         } else if (name.equals("xslt")) {
             String url = (String) args.get("url");
             @SuppressWarnings("unchecked")
             Map<String,?> substitutions = (Map<String, ?>) args.get("substitutions");
             String xsltTemplate = ResourceUtils.create(CompoundTransformer.class).getResourceAsString(url);
             String xslt = TemplateProcessor.processTemplateContents(xsltTemplate, substitutions == null ? ImmutableMap.<String, String>of() : substitutions);
-            // TODO pass XSLT-style parameters instead, maybe?  that's more normal, 
+            // we could pass XSLT-style parameters instead, maybe?  that's more normal, 
             // but OTOH freemarker is maybe more powerful, given our other support there
             builder.xsltTransformer(xslt);
         } else if (name.equals("rawDataTransformer")) {
@@ -82,5 +98,12 @@ public class CompoundTransformerLoader {
         } else {
             throw new IllegalStateException("Unsupported transform '"+name+"' ("+args+")");
         }
+    }
+
+    private static String checkString(Object object, String name) {
+        if (object!=null && !(object instanceof String)) {
+            throw new IllegalArgumentException("Argument '"+name+"' must be a string; numbers may need explicit quoting in YAML.");
+        }
+        return (String) object;
     }
 }

@@ -22,16 +22,21 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.brooklyn.api.entity.basic.EntityLocal;
+import org.apache.brooklyn.api.entity.drivers.downloads.DownloadResolver;
+import org.apache.brooklyn.core.util.file.ArchiveUtils;
+
 import brooklyn.entity.basic.lifecycle.ScriptHelper;
-import brooklyn.entity.drivers.downloads.DownloadResolver;
-import brooklyn.location.basic.SshMachineLocation;
+
+import org.apache.brooklyn.location.basic.SshMachineLocation;
+
 import brooklyn.util.collections.MutableMap;
-import brooklyn.util.file.ArchiveUtils;
 import brooklyn.util.guava.Maybe;
 import brooklyn.util.net.Urls;
 import brooklyn.util.os.Os;
 import brooklyn.util.ssh.BashCommands;
 import brooklyn.util.text.Identifiers;
+import brooklyn.util.text.Strings;
 
 public class VanillaSoftwareProcessSshDriver extends AbstractSoftwareProcessSshDriver implements VanillaSoftwareProcessDriver {
 
@@ -78,6 +83,16 @@ public class VanillaSoftwareProcessSshDriver extends AbstractSoftwareProcessSshD
                     throw new IllegalStateException("Error installing archive: " + downloadedFilename);
             }
         }
+        
+        String installCommand = getEntity().getConfig(VanillaSoftwareProcess.INSTALL_COMMAND);
+        
+        if (Strings.isNonBlank(installCommand)) {
+            newScript(INSTALLING)
+                .failOnNonZeroResultCode()
+                .environmentVariablesReset(getShellEnvironment())
+                .body.append(installCommand)
+                .execute();
+        }
     }
 
     @Override
@@ -89,6 +104,15 @@ public class VanillaSoftwareProcessSshDriver extends AbstractSoftwareProcessSshD
                     .environmentVariablesReset()
                     .body.append(ArchiveUtils.extractCommands(downloadedFilename, getInstallDir()))
                     .execute();
+        }
+        
+        String customizeCommand = getEntity().getConfig(VanillaSoftwareProcess.CUSTOMIZE_COMMAND);
+        
+        if (Strings.isNonBlank(customizeCommand)) {
+            newScript(CUSTOMIZING)
+                .failOnNonZeroResultCode()
+                .body.append(customizeCommand)
+                .execute();
         }
     }
 

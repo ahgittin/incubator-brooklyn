@@ -26,9 +26,11 @@ import java.security.PrivateKey;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 
+import org.apache.brooklyn.core.util.crypto.FluentKeySigner;
+import org.apache.brooklyn.core.util.crypto.SecureKeys;
+import org.apache.brooklyn.core.util.task.Tasks;
+
 import brooklyn.util.collections.MutableMap.Builder;
-import brooklyn.util.crypto.FluentKeySigner;
-import brooklyn.util.crypto.SecureKeys;
 import brooklyn.util.exceptions.Exceptions;
 import brooklyn.util.jmx.jmxmp.JmxmpAgent;
 import brooklyn.util.net.Urls;
@@ -37,7 +39,7 @@ import com.google.common.base.Preconditions;
 
 public class JmxmpSslSupport {
 
-    final static String BROOKLYN_VERSION = "0.7.0-SNAPSHOT";  // BROOKLYN_VERSION (updated by script)
+    final static String BROOKLYN_VERSION = "0.8.0-SNAPSHOT";  // BROOKLYN_VERSION (updated by script)
     
     private final JmxSupport jmxSupport;
     
@@ -96,11 +98,15 @@ public class JmxmpSslSupport {
             ByteArrayOutputStream agentTrustStoreBytes = new ByteArrayOutputStream();
             agentTrustStore.store(agentTrustStoreBytes, "".toCharArray());
             
-            // install the truststore and keystore
-            jmxSupport.getMachine().get().copyTo(new ByteArrayInputStream(agentKeyStoreBytes.toByteArray()), getJmxSslKeyStoreFilePath());
-            jmxSupport.getMachine().get().copyTo(new ByteArrayInputStream(agentTrustStoreBytes.toByteArray()), getJmxSslTrustStoreFilePath());
-            
-            // and rely on JmxSupport to install the agent
+            // install the truststore and keystore and rely on JmxSupport to install the agent
+            Tasks.setBlockingDetails("Copying keystore and truststore to the server.");
+            try {
+                jmxSupport.getMachine().get().copyTo(new ByteArrayInputStream(agentKeyStoreBytes.toByteArray()), getJmxSslKeyStoreFilePath());
+                jmxSupport.getMachine().get().copyTo(new ByteArrayInputStream(agentTrustStoreBytes.toByteArray()), getJmxSslTrustStoreFilePath());
+            } finally {
+                Tasks.resetBlockingDetails();
+            }
+
         } catch (Exception e) {
             throw Exceptions.propagate(e);
         }

@@ -22,17 +22,20 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.Map;
 import java.util.Map.Entry;
 
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.management.ManagementContext;
+import org.apache.brooklyn.core.management.internal.LocalLocationManager;
+import org.apache.brooklyn.core.management.internal.ManagementContextInternal;
+import org.apache.brooklyn.core.util.config.ConfigBag;
+import org.apache.brooklyn.core.util.flags.FlagUtils;
+
 import brooklyn.config.ConfigKey;
-import brooklyn.location.Location;
-import brooklyn.location.LocationSpec;
-import brooklyn.location.basic.AbstractLocation;
-import brooklyn.location.basic.LocationInternal;
-import brooklyn.management.ManagementContext;
-import brooklyn.management.internal.LocalLocationManager;
-import brooklyn.management.internal.ManagementContextInternal;
-import brooklyn.util.config.ConfigBag;
+
+import org.apache.brooklyn.location.basic.AbstractLocation;
+import org.apache.brooklyn.location.basic.LocationInternal;
+
 import brooklyn.util.exceptions.Exceptions;
-import brooklyn.util.flags.FlagUtils;
 
 import com.google.common.collect.ImmutableMap;
 
@@ -103,6 +106,10 @@ public class InternalLocationFactory extends InternalFactory {
 
             if (spec.getDisplayName()!=null)
                 ((AbstractLocation)loc).setDisplayName(spec.getDisplayName());
+            
+            if (spec.getCatalogItemId()!=null) {
+                ((AbstractLocation)loc).setCatalogItemId(spec.getCatalogItemId());
+            }
             
             loc.tags().addTags(spec.getTags());
             

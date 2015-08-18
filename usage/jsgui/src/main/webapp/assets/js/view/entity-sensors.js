@@ -28,7 +28,7 @@ define([
 ], function (_, $, Backbone, Util, ZeroClipboard, ViewUtils, SensorSummary, SensorsHtml, SensorNameHtml) {
 
     // TODO consider extracting all such usages to a shared ZeroClipboard wrapper?
-    ZeroClipboard.config({ moviePath: 'assets/js/libs/ZeroClipboard.swf' });
+    ZeroClipboard.config({ moviePath: '//cdnjs.cloudflare.com/ajax/libs/zeroclipboard/1.3.1/ZeroClipboard.swf' });
     
     var sensorHtml = _.template(SensorsHtml),
         sensorNameHtml = _.template(SensorNameHtml);
@@ -48,6 +48,7 @@ define([
             'click .refresh': 'updateSensorsNow',
             'click .filterEmpty':'toggleFilterEmpty',
             'click .toggleAutoRefresh':'toggleAutoRefresh',
+            'click #sensors-table div.secret-info':'toggleSecrecyVisibility',
             
             'mouseup .valueOpen':'valueOpen',
             'mouseover #sensors-table tbody tr':'noteFloatMenuActive',
@@ -104,17 +105,25 @@ define([
                                              sensorName = row[0],
                                              actions = that.getSensorActions(sensorName);
                                          
+                                         // NB: the row might not yet exist
+                                         var $row = $('tr[id="'+sensorName+'"]');
+                                         
                                          // datatables doesn't seem to expose any way to modify the html in place for a cell,
                                          // so we rebuild
                                          
                                          var result = "<span class='value'>"+(hasEscapedValue ? escapedValue : '')+"</span>";
+
+                                         var isSecret = Util.isSecret(sensorName);
+                                         if (isSecret) {
+                                            result += "<span class='secret-indicator'>(hidden)</span>";
+                                         }
+                                         
                                          if (actions.open)
                                              result = "<a href='"+actions.open+"'>" + result + "</a>";
                                          if (escapedValue==null || escapedValue.length < 3)
                                              // include whitespace so we can click on it, if it's really small
                                              result += "&nbsp;&nbsp;&nbsp;&nbsp;";
 
-                                         var $row = $('tr[id="'+sensorName+'"]');
                                          var existing = $row.find('.dynamic-contents');
                                          // for the json url, use the full url (relative to window.location.href)
                                          var jsonUrl = actions.json ? new URI(actions.json).resolve(new URI(window.location.href)).toString() : null;
@@ -159,7 +168,9 @@ define([
                                          		"<div class='floatLeft'><span class='icon-chevron-down hasFloatDown'></span>" +
                                          		downMenu +
                                          		"</div>";
-                                         result = "<div class='floatGroup'>" + result + "</div>";
+                                         result = "<div class='floatGroup"+
+                                            (isSecret ? " secret-info" : "")+
+                                            "'>" + result + "</div>";
                                          // also see updateFloatMenus which wires up the JS for these classes
                                          
                                          return result;
@@ -173,30 +184,24 @@ define([
             
             this.zeroClipboard = new ZeroClipboard();
             this.zeroClipboard.on( "dataRequested" , function(client) {
-                var text = $(this).attr('copy-value');
-                if (!text) text = $(this).closest('.floatGroup').find('.value').html();
                 try {
-//                    log("Copying text '"+text+"' to clipboard");
+                    // the zeroClipboard instance is a singleton so check our scope first
+                    if (!$(this).closest("#sensors-table").length) return;
+                    var text = $(this).attr('copy-value');
+                    if (!text) text = $(this).closest('.floatGroup').find('.value').text();
+
+//                    log("Copying sensors text '"+text+"' to clipboard");
                     client.setText(text);
                     
-                    var $widget = $(this);
-                    var oldHtml = $widget.html();
-                    var fnRestore = _.once(function() { $widget.html(oldHtml); });
-                    // show the word copied for feedback;
+                    // show the word "copied" for feedback;
                     // NB this occurs on mousedown, due to how flash plugin works
                     // (same style of feedback and interaction as github)
                     // the other "clicks" are now triggered by *mouseup*
+                    var $widget = $(this);
+                    var oldHtml = $widget.html();
                     $widget.html('<b>Copied!</b>');
-                    setTimeout(fnRestore, 3000);
-                    
-                    // these listeners stay registered until page is reloaded
-                    // but they do nothing after first run, due to use of _.once
-                    // however the timeout is good enough, and actually desired
-                    // because on corner case of mousedown-moveaway-mouseup,
-                    // we want to keep the feedback; so they work, but are disabled for now.
-                    // (remove once we are happy with this behaviour, since Feb 2014)
-//                    that.zeroClipboard.on( "mouseout", fnRestore);
-//                    that.zeroClipboard.on( "mouseup", fnRestore);
+                    // use a timeout to restore because mouseouts can leave corner cases (see history)
+                    setTimeout(function() { $widget.html(oldHtml); }, 600);
                 } catch (e) {
                     log("Zeroclipboard failure; falling back to prompt mechanism");
                     log(e);
@@ -237,7 +242,10 @@ define([
         floatMenuActive: false,
         lastFloatMenuRowId: null,
         lastFloatFocusInTextForEventUnmangling: null,
-        updateFloatMenus: function() { this.zeroClipboard.clip( $('.valueCopy') ); },
+        updateFloatMenus: function() {
+            $('#sensors-table *[rel="tooltip"]').tooltip();
+            this.zeroClipboard.clip( $('.valueCopy') );
+        },
         showFloatLeft: function(event) {
             this.noteFloatMenuFocusChange(true, event, "show-left");
             this.showFloatLeftOf($(event.currentTarget));
@@ -445,6 +453,10 @@ define([
         enableAutoRefresh: function(isEnabled) {
             this.refreshActive = isEnabled;
             return this;
+        },
+        
+        toggleSecrecyVisibility: function(event) {
+            $(event.target).closest('.secret-info').toggleClass('secret-revealed');
         },
         
         /**
