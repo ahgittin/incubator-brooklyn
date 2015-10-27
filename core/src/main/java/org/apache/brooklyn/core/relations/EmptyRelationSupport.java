@@ -22,7 +22,6 @@ import java.util.Collections;
 import java.util.Set;
 
 import org.apache.brooklyn.api.objs.BrooklynObject;
-import org.apache.brooklyn.api.objs.BrooklynObject.RelationSupport;
 import org.apache.brooklyn.core.objs.BrooklynObjectInternal.RelationSupportInternal;
 
 import brooklyn.basic.relations.Relationship;
@@ -50,11 +49,6 @@ public final class EmptyRelationSupport<SourceType extends BrooklynObject> imple
 
     @Override
     public <U extends BrooklynObject> void remove(Relationship<? super SourceType, ? super U> relationship, U target) {
-    }
-
-    @Override
-    public RelationSupport<SourceType> getLocalBackingStore() {
-        throw new UnsupportedOperationException("Relations not available on "+source);
     }
 
 }

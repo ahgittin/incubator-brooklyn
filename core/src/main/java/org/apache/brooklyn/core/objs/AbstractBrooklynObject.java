@@ -29,7 +29,7 @@ import org.apache.brooklyn.core.entity.AbstractEntity;
 import org.apache.brooklyn.core.mgmt.internal.ManagementContextInternal;
 import org.apache.brooklyn.core.mgmt.rebind.RebindManagerImpl;
 import org.apache.brooklyn.core.objs.proxy.InternalFactory;
-import org.apache.brooklyn.core.relations.ByObjectBasicRelationSupport;
+import org.apache.brooklyn.core.relations.BasicRelationSupport;
 import org.apache.brooklyn.util.core.config.ConfigBag;
 import org.apache.brooklyn.util.core.flags.SetFromFlag;
 import org.apache.brooklyn.util.text.Identifiers;
@@ -57,7 +57,7 @@ public abstract class AbstractBrooklynObject<PublicSelfType extends BrooklynObje
     @SetFromFlag(value = "tags")
     private final Set<Object> tags = Sets.newLinkedHashSet();
 
-    private RelationSupportInternal<PublicSelfType> relations = new ByObjectBasicRelationSupport<PublicSelfType>(getPublicThis(), new RelationChangedCallback());
+    private RelationSupportInternal<PublicSelfType> relations = new BasicRelationSupport<PublicSelfType>(getPublicThis(), new RelationChangedCallback());
     
     private volatile ManagementContext managementContext;
     

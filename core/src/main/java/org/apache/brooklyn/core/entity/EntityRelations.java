@@ -19,7 +19,6 @@
 package org.apache.brooklyn.core.entity;
 
 import java.util.Map;
-import java.util.Set;
 
 import org.apache.brooklyn.api.entity.Application;
 import org.apache.brooklyn.api.entity.Entity;
@@ -27,7 +26,6 @@ import org.apache.brooklyn.api.entity.Group;
 import org.apache.brooklyn.api.mgmt.ManagementContext;
 import org.apache.brooklyn.api.objs.BrooklynObject;
 import org.apache.brooklyn.api.policy.Policy;
-import org.apache.brooklyn.core.objs.BrooklynObjectInternal;
 import org.apache.brooklyn.core.relations.Relationships;
 import org.apache.brooklyn.util.collections.MutableMap;
 
@@ -135,26 +133,4 @@ public class EntityRelations<T extends BrooklynObject> {
         return Relationships.newRelationshipOneway("source", "sources", BrooklynObject.class, relationshipTypeName, "target", "targets", BrooklynObject.class);
     }
     
-    @SuppressWarnings({ "rawtypes", "unchecked" })
-    public static <T extends BrooklynObject> Set<Relationship<? super T,? extends BrooklynObject>> getRelationships(T source) {
-        return ((BrooklynObjectInternal)source).relations().getLocalBackingStore().getRelationships();
-    }
-
-    @SuppressWarnings({ "rawtypes", "unchecked" })
-    public static <T extends BrooklynObject,U extends BrooklynObject> Set<U> getRelations(Relationship<? super T,U> relationship, T source) {
-        return ((BrooklynObjectInternal)source).relations().getLocalBackingStore().getRelations(relationship);
-    }
-
-    @SuppressWarnings({ "rawtypes", "unchecked" })
-    public static <T extends BrooklynObject,U extends BrooklynObject> void add(T source, Relationship<? super T,? super U> relationship, U target) {
-        ((BrooklynObjectInternal)source).relations().getLocalBackingStore().add(relationship, target);
-        ((BrooklynObjectInternal)target).relations().getLocalBackingStore().add(relationship.getInverseRelationship(), source);
-    }
-
-    @SuppressWarnings({ "rawtypes", "unchecked" })
-    public static <T extends BrooklynObject,U extends BrooklynObject> void remove(T source, Relationship<? super T,? super U> relationship, U target) {
-        ((BrooklynObjectInternal)source).relations().getLocalBackingStore().remove(relationship, target);
-        ((BrooklynObjectInternal)target).relations().getLocalBackingStore().remove(relationship.getInverseRelationship(), source);
-    }
-
 }

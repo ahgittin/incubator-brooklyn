@@ -127,7 +127,5 @@ public interface BrooklynObjectInternal<PublicSelfType extends BrooklynObject, I
     RelationSupportInternal<PublicSelfType> relations();
     
     public interface RelationSupportInternal<T extends BrooklynObject> extends BrooklynObject.RelationSupport<T> {
-        @Beta
-        RelationSupport<T> getLocalBackingStore();
     }
 }
